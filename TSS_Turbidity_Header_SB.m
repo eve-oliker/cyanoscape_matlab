@@ -6,16 +6,17 @@ clear;
 clc;
 addpath = ('/Users/eveoliker/Downloads/'); 
 
-%% 1: Grab data from raw data file
+%% Environment Set-up, file path configuration
 
-% Set the folder where the file resides
-inputFolder = '/Users/eveoliker/Downloads/Bioscape_Files/TSS_Turbidity';
+% Set the folder where this script is located
+inputFolder = '/your/filepath/here';
+
+% 1: Grab data from raw data file
 inputFile = 'MATLAB_TSS_Turbidity(SeaBASS)_Reference.xlsx';
-bioscapeFolder = '/Users/eveoliker/Downloads';
 filePath = fullfile(inputFolder, inputFile);
+metaFolder = '/your/metadata/filepath/here';
 
-% 1A 
-% forces SPM (TSS) to input as string text to deal with <5 and <13 values
+% 1A: forces SPM (TSS) to input as string text to deal with <5 and <13 values
 opts = detectImportOptions(filePath);
 opts = setvartype(opts, {'SPM'}, 'string');
 mainData = readtable(filePath, opts);
@@ -25,17 +26,15 @@ mainData.Properties.VariableNames = lower(mainData.Properties.VariableNames);
 
 % searches SPM column for values with "<" symbol
 if ismember('spm', mainData.Properties.VariableNames)
-    %clean empty/missing values - make blank
-    mainData.spm(ismissing(mainData.spm)) = "";
-    % replaces anything with "<" to -8888
-    belowDetect = contains(mainData.spm, "<");
-    mainData.spm(belowDetect) = '-8888';
-    % convert from string to double
-    mainData.spm = double(mainData.spm);
+    mainData.spm(ismissing(mainData.spm)) = "";        %clean empty/missing values - make blank
+    belowDetect = contains(mainData.spm, "<");         
+    mainData.spm(belowDetect) = '-8888';                % replaces anything with "<" to -8888
+    mainData.spm = double(mainData.spm);                % convert from string to double
 end
 
 %% 2: Import metadata
-metadataTable = readtable(fullfile(bioscapeFolder, 'BIOSCAPE_metadataTable.xlsx'));
+metadataPath = fullfile(metaFolder, 'BIOSCAPE_metadataTable.xlsx');
+metadataTable = readtable(metadataPath);
 metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
 
 % initialize blank columns for metadata 
@@ -50,8 +49,7 @@ mainData.time = duration(NaN(height(mainData), 1), 0, 0);
 siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
 fileNames = {'Rietvlei_TSS_Turbidity.xlsx', 'Klein_River_Estuary_TSS_Turbidity.xlsx', 'Theewaterskloof_TSS_Turbidity.xlsx', 'Zeekoevlei_TSS_Turbidity.xlsx'};
 
-% nested array - maps specific station codes to their parent site
-% Identify which stations correlate to each site defined above
+% nested array - maps specific station codes to their parent site defined above
 stationsPerSite = {...
     {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
     {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
@@ -60,7 +58,6 @@ stationsPerSite = {...
     };
 
 %% 4: For loop - split data from one file into individual by site
-% 4A
 for s = 1:length(siteNames)
     clear project_info; 
     currentSite = siteNames{s};
@@ -69,16 +66,14 @@ for s = 1:length(siteNames)
     
     % Filter rows belonging to the stations for this site
     siteRowsMask = ismember(mainData.station, upper(strip(string(currentStationList))));
-    % isolate table rows
-    siteTable = mainData(siteRowsMask, :);
+    siteTable = mainData(siteRowsMask, :);            % isolate table rows
     siteTable.station = string(siteTable.station);
 
    %% 4B: metadata matching loop 
    % for the current station, find the matching rows in the metadata file
-   % strcmpi = ignore case sensitivity
    for i = 1:length(currentStationList)
        currentStation = currentStationList{i};
-       metaRow = strcmpi(metadataTable.station, currentStation);
+       metaRow = strcmpi(metadataTable.station, currentStation);    % strcmpi = ignore case sensitivity
        dataRows = strcmpi(siteTable.station, currentStation);
 
        if any(metaRow)
@@ -92,11 +87,9 @@ for s = 1:length(siteNames)
    end
     
    %% 5) collect and group weather/ water notes
-   % create empty array
-   siteComments = {};
+   siteComments = {};       % create empty array
 
-   % only shows stations with data in the file
-   stationsInFile = unique(strip(string(siteTable.station)));
+   stationsInFile = unique(strip(string(siteTable.station)));       % only shows stations with data in the file
 
    for noteType = ["weather_notes", "water_surface_notes"]
        if ismember(noteType, metadataTable.Properties.VariableNames)
@@ -109,8 +102,7 @@ for s = 1:length(siteNames)
 
            % Group matching note strings and join station names
            % findgroups: assigns a group number ID to each unique string
-           % G: column array of group IDs matching each station row in
-           % subtable
+           % G: column array of group IDs matching each station row in subtable
            [G, uniqueNotes] = findgroups(subTable.(noteType));
            % loop through each group index from 1 to the total number of
            % unique notes (max(G))
@@ -119,33 +111,29 @@ for s = 1:length(siteNames)
                % joins into single string separated by semicolon
                stns = strjoin(subTable.station(G == g), '; ');
                
-                % set header label
-                if noteType == "weather_notes"
+                if noteType == "weather_notes"                 % set header label
                     label = "Weather Notes";
                 else
                     label = "Water Surface Notes";
                 end
                 % assemble final string, apend to siteComments
                siteComments{end+1, 1} = sprintf('! %s [%s]: %s', label, char(stns), char(uniqueNotes(g)));
-
            end
        end
    end
    
    % fill missing secchi depth with missing value -9999
    siteTable.secchi_depth(isnan(siteTable.secchi_depth)) = -9999;
-   % replace with seabass SZ
-   siteTable.SZ = siteTable.secchi_depth;
+   siteTable.SZ = siteTable.secchi_depth;    % replace with seabass SZ
 
     %% 6 Call the header function
-    
     % define fields, units, header variables
     fieldsList = {'station', 'turbidity', 'spm', 'lat', 'lon', 'date', 'time', 'SZ'};
     unitsList ={'none', 'NTU', 'mg/L', 'degrees', 'degrees', 'yyyymmdd', 'hh:mm:ss', 'm'};
     dataType = 'bottle';
     projectDocuments = 'TBD';
 
-    % call function
+    % call the header function
     siteTable = siteTable(:, fieldsList);
     headerPath = '/Users/eveoliker/Downloads/';
     project_info = Seabass_project_headers(currentSite, currentStationList, fieldsList, unitsList);
@@ -162,7 +150,7 @@ for s = 1:length(siteNames)
     project_info.documents = projectDocuments;
     fields = fieldnames(project_info); % extracts a list of the text labels as an array of strings
     
-    %% 7 create header array
+    %% 7: create header array
     headerCellArray = {}; % start with blank array
     headerCellArray{end+1, 1} = '/begin_header';
 
