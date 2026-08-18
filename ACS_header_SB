@@ -1,0 +1,203 @@
+%% ACS data to with seabass format and header
+% By Eve Oliker
+% Last updated 06/23/2026
+clear;
+clc;
+
+%% Grab data
+% load metadata table
+metaPath = '/path/to/metadata';
+metadataTable = readtable(fullfile(metaPath, 'metadata_file.csv'));
+metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
+
+% Direct to folder - files split by substation
+inputFolder = 'input/folder/path';
+ACSFolder = fileparts(inputFolder); 
+% make a subfolder for output files
+outputFolder = fullfile(ACSFolder, 'ACS_Output');
+
+%% Add external bincount data
+binFolder = '/path/to/ACS/bincount/file';
+binFile = fullfile(binFolder, 'ACS_station_N_summary.csv');
+
+if isfile(binFile)
+    opts = detectImportOptions(binFile);     % Read table, clean
+    opts.VariableTypes = {'string', 'string'};      % Treat station and N as strings 
+    summaryData = readtable(binFile, opts);
+else
+    error('Summary CSV file not found at: %s', binFile);
+end
+
+%% Identify sites and stations
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+% Identify which stations correlate to each site defined above
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+allFiles = [dir(fullfile(inputFolder, '*.xlsx')); dir(fullfile(inputFolder, '*.xls'))];
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    currentStationList = stationsPerSite{s}; 
+    siteOutputDir = fullfile(outputFolder, currentSite);     % Create a subfolder for the site inside ACS_Output
+    if ~exist(siteOutputDir, 'dir')
+        mkdir(siteOutputDir);
+    end
+
+    for st = 1:length(currentStationList)
+        currentStation = currentStationList{st};
+        inputFileName = sprintf('%s_ACS_.xlsx', currentStation);   % Construct file names (e.g., ZK3E_ACS.xlsx)
+        fullInputPath = fullfile(inputFolder, inputFileName);
+        if ~isfile(fullInputPath)
+            fprintf('Could not find file: %s. Skipping...\n', inputFileName);
+            continue;
+        end
+
+        stationTable = readtable(fullInputPath);         % Read table
+        stationIdx = strcmp(summaryData.station, currentStation);         % look up N (bincount) for current station
+        if any(stationIdx)         % match station name against 'station' column
+            currentN = summaryData.N(stationIdx);
+            % if N is cell or array
+            if iscell(currentN)
+                currentN = currentN{1};
+            end
+        else
+            warning('Bincount for station %s not found',currentStation, binFile)
+            currentN = 'NA';
+        end
+
+        metaRow = strcmpi(metadataTable.station, currentStation);         %% secchi depth for current station
+
+        szVal = -9999;
+        if any(metaRow) && ismember('secchi_depth', metadataTable.Properties.VariableNames)
+            tempSZ = metadataTable.secchi_depth(metaRow);
+            if ~isnan(tempSZ) && ~ismissing(tempSZ)
+                szVal = tempSZ;
+            end
+        end
+  
+         % % Delete c_wavelength (column 4) if present - unnecessary, same as wavelength for a
+         if width(stationTable) >= 8
+              stationTable(:, 4) = [];
+         end
+
+        % Output file names
+        outputFileName = sprintf('%s_ACS_prepped.xlsx', currentStation);
+        outputFile = fullfile(siteOutputDir, outputFileName);
+        sbFileName = sprintf('%s_ACS_prepped.sb', currentStation);
+    
+    fieldsList = {'wavelength', 'a', 'a_sd', 'c', 'c_sd','b', 'b_sd'};
+    unitsList  = {'nm', '1/m','1/m','1/m','1/m','1/m','1/m'};
+    dataType = 'scan';
+    projectDocuments = 'TBD';
+
+    %% Call the header function and add start and end lines
+    headerPath = '/path/to/header/function';
+       project_info = Seabass_project_headers(currentSite, currentStation, fieldsList, unitsList);
+    
+       headerStartDate = project_info.start_date;
+    
+       % make the field for /data_file_name match the ultimate sb output file
+       sbFileName = sprintf('BIOSCAPE-ACS-%s-%s-%s-R1.sb', ...
+           currentStation, dataType, char(headerStartDate));
+    
+       project_info.data_file_name = sbFileName;
+       project_info.data_type = dataType;
+       project_info.documents = projectDocuments;
+       project_info.secchi_depth = szVal;
+       
+       % convert szVal to string
+       if iscell(szVal), szVal = szVal{1}; end
+       if isnumeric(szVal)
+           project_info.secchi_depth = [num2str(szVal)];
+       else
+           project_info.secchi_depth = [char(szVal)];
+       end
+
+    fields = fieldnames(project_info); % extracts a list of the text labels as an array of strings
+    headerCellArray = {}; % builds sequentially by row
+
+    headerCellArray{end+1, 1} = '/begin_header';     %% start the header
+
+    for f = 1:length(fields)     % translation loop that moves through metadata fields
+        fieldName = fields{f};
+        val = project_info.(fields{f});
+
+        if strcmp(fieldName, 'secchi_depth'), continue; end         % skip secchi to place manually
+
+        if isnumeric(val)
+            if isempty(val); val = ''; % empty numeric arrays
+            else; val = num2str(val);
+            end
+        end
+
+        if strcmp(fieldName, 'measurement_depth')         % insert secchi below measurement_depth
+            secchiVal = project_info.secchi_depth;
+            if iscell(secchiVal), secchiVal = secchiVal{1}; end
+            if isnumeric(secchiVal), secchiVal = num2str(secchiVal); end
+            headerCellArray{end+1, 1} = sprintf('/secchi_depth=%s', char(project_info.secchi_depth));
+        end
+
+        val = char(val); % makes sure val is a char vector
+        headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+    end
+
+    %% collect and group weather/ water notes
+       waterNotes = 'NA';
+       weatherNotes = 'NA';
+
+       stationIdx = strcmp(string(metadataTable.station), currentStation);        % Match row for current station
+
+       if any(stationIdx)
+           waterVal = metadataTable.water_surface_notes(stationIdx);
+           weatherVal = metadataTable.weather_notes(stationIdx);
+           if iscell(waterVal), waterVal = waterVal{1}; end            % convert to text if needed
+           if iscell(weatherVal), weatherVal = weatherVal{1}; end
+
+           if ~isempty(waterVal) && ~all(ismissing(waterVal))            % assign text if non-empty and not missing
+               waterNotes = char(waterVal);
+           end
+           if ~isempty(weatherVal) && ~all(ismissing(weatherVal))
+               weatherNotes = char(weatherVal);
+           end
+       end
+       
+    manufact = '/instrument_manufacturer=WET_Labs';
+    model = '/instrument_model=Spectral_Absorption_and_Attenuation_Sensor(ac-s)';
+    bincount = sprintf('/bincount=%s', currentN);
+  
+    comments = {'!','! Comments',...
+        '! The ACS comes with an instrument-specific device file (acs120.dev) that contains a temperature and pure-water offset calibration performed at the factory',...
+        '! ACS serial number: 53000070',...
+        '! Structure version number 3',...
+        '! WetView ver 7.1',...
+        ['! Water surface notes: ' waterNotes],...
+        ['! Weather notes: ' weatherNotes],...
+        '!',};
+
+     insertBlock = [bincount; manufact; model; comments(:)];
+     idx = find(contains(headerCellArray, '/fields='));
+        
+        if ~isempty(idx); headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+        else; headerCellArray = [headerCellArray; insertBlock];
+        end
+        
+        headerCellArray{end+1, 1} = '/end_header';
+        if isfile(outputFile)
+            delete(outputFile);
+        end
+
+    % Write the metadata cells starting at row 1
+    writecell(headerCellArray(:), outputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+    % Write the numerical data rows below the header
+    writetable(stationTable, outputFile, 'FileType', 'spreadsheet', 'WriteMode', 'append', 'WriteVariableNames', false);
+    fprintf('Saved: %s\n', outputFile);
+
+    %% Call the file post-processing function to make into .sb
+    headerStartDate = project_info.start_date;
+    convert_excel_to_seabass(siteOutputDir, dataType, currentStation, headerStartDate);
+    end
+end
