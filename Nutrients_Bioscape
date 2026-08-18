@@ -1,0 +1,308 @@
+%% Organize Nutrients Data
+% By Eve Oliker
+% 06/06/2026
+
+clear;
+clc;
+
+% set up - folder with raw data files for 3 kinda of nutrients data
+
+% Open folder of the 3 files
+nutrientsFolder = '/Users/eveoliker/Downloads/NASA Internship/Bioscape_Files/Nutrients'; 
+molar_mass_C = 12.011; %g/mol
+
+%% FIRST FILE - NUTRIENTS
+nutrientsFile = 'Nutrients_2024_Bioscape.xlsx';
+nutrientsData = readtable(fullfile(nutrientsFolder, nutrientsFile)); % Read the nutrients data from the specified Excel file
+% clean station name so all are identical
+nutrientsData.station = regexprep(nutrientsData.station, 'NAA', '');
+nutrientsData.station = regexprep(nutrientsData.station, '\*', '');
+nutrientsData.station = strtrim(nutrientsData.station);
+
+%% group and calculate statistics
+% groupsummary - groups data by specific column and automatically 
+% calculates the mean and std for specified columns
+nutrientVars = nutrientsData.Properties.VariableNames;
+nutrientColumns = nutrientVars(contains(nutrientVars, {'Phosphate','Silicate','Nitrate','Nitrite','Ammonia'}, 'IgnoreCase', true));
+
+% group summary - find all unique stations, group replicates, calculate 
+% mean and std for all nutrient columns) and bincount
+bincountFunction = @(x) sum(~isnan(x));
+nutrientStats = groupsummary(nutrientsData, 'station', {'mean', 'std',bincountFunction}, nutrientColumns);
+
+%% Rename and reorder columns for seabass
+nutrientsSeaBassTable = table(); % create a new empty table
+nutrientsSeaBassTable.station = nutrientStats.station; % keep station column
+
+% Dynamic mapping: find mean/std column names that contain each nutrient keyword
+% rename to meet seaBASS requirements
+nutrientsMap = {'Phosphate','PO4'; 'Silicate','SiO4'; 'Nitrate','NO3'; 'Nitrite','NO2'; 'Ammonia','NH4'};
+
+%% for loop 
+% goes through the map, finds calculated mean/sd in nutrientStats
+% assigns values to a new standardized table 
+% if variable is missing a sign - Nan
+
+for i = 1:size(nutrientsMap,1)
+    keyword = nutrientsMap{i,1};
+    shortname = nutrientsMap{i,2};
+    meanCols = nutrientStats.Properties.VariableNames(contains(nutrientStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & contains(nutrientStats.Properties.VariableNames, 'mean', 'IgnoreCase', true));
+    stdCols  = nutrientStats.Properties.VariableNames(contains(nutrientStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & contains(nutrientStats.Properties.VariableNames, {'std','std_'}, 'IgnoreCase', true));
+    binCols = nutrientStats.Properties.VariableNames(contains(nutrientStats.Properties.VariableNames, keyword, 'IgnoreCase',true) & contains(nutrientStats.Properties.VariableNames, {'fun1','nummissing'}, 'IgnoreCase', true));    % nummissing - counts number of Nan/ blank entries
+    % count function - first custom function in group summary
+    % saved by matlab as fun1_name
+   
+    % mean
+    if ~isempty(meanCols)
+        nutrientsSeaBassTable.(shortname) = nutrientStats.(meanCols{1});
+    else
+        nutrientsSeaBassTable.(shortname) = NaN(height(nutrientStats),1);
+    end
+    
+    %sd
+    if ~isempty(stdCols)
+        nutrientsSeaBassTable.([shortname '_sd']) = nutrientStats.(stdCols{1});
+    else
+        nutrientsSeaBassTable.([shortname '_sd']) = NaN(height(nutrientStats),1);
+    end
+    
+    % bincount (n)
+    if ~isempty(binCols)
+        nutrientsSeaBassTable.([shortname '_bincount']) = nutrientStats.(binCols{1});
+    else
+        nutrientsSeaBassTable.([shortname '_bincount']) = zeros(height(nutrientStats),1);
+    end
+end
+
+%% SECOND FILE - LIQUID CARBON
+liquidFile = 'Liquid_Carb_2024_Bioscape.xlsx';
+liquidData = readtable(fullfile(nutrientsFolder, liquidFile)); % Read the  data from the specified Excel file
+
+% filters dataset - only work with columns labeled Dissolved Type 
+% (original file has DOC, pH, TOC)
+% strips DOC from name
+
+isDOCRow = contains(liquidData.station, '_DOC');
+docData = liquidData(isDOCRow, :);
+docData.station = regexprep(docData.station, '_DOC', ''); % group replicates together
+docData.station = strtrim(docData.station);
+
+% identify data columns
+liquidVars = docData.Properties.VariableNames;
+liquidColumns = liquidVars(contains(liquidVars, {'Inorganic','Total','Organic'}, 'IgnoreCase', true));
+
+% %% REPLACE VALUES < 0.09 WITH NON-DETECT (-8888)
+   detection_limit = 1.0;
+    belowDetectMask = docData.OrganicCarbon < detection_limit & ~isnan(docData.OrganicCarbon);
+    docData.OrganicCarbon(belowDetectMask) = -8888;
+    
+    nanMask = isnan(docData.OrganicCarbon);
+    docData.OrganicCarbon(nanMask) = -9999;
+ 
+% % Custom bincount function that excludes for NaN (-9999)
+bincountValid = @(x) sum(~isnan(x) & x ~= -9999 & x ~= -8888);
+
+% run groupsummary for DOC data
+liquidStats = groupsummary(docData, 'station', {'mean', 'std', bincountValid}, liquidColumns);
+%% Rename and reorder columns for seabass
+liquidSeaBassTable = table(); % create a new empty table
+liquidSeaBassTable.station = liquidStats.station; % keep station column
+
+% mg_L_to_umol_L = 1000 / molar_mass_C;
+
+% Dynamic mapping - column 1 = keyword, column 2 = seabass name
+liquidMap = { 'Inorganic', 'DIC_L', 1; % umol/L 
+    'Total',     'Total_C',         1;     % mg/m^3
+    'Organic',   'DOC_L',           1;       % umol/L 
+    };
+
+% same for loop type as above - account for -8888
+for i = 1:size(liquidMap,1)
+    keyword = liquidMap{i,1};
+    shortname = liquidMap{i,2};
+    liquidConversionFactor = liquidMap{i,3};
+    
+    meanCols = liquidStats.Properties.VariableNames(...
+        contains(liquidStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        ~contains(liquidStats.Properties.VariableNames, 'Inorganic', 'IgnoreCase', true) & ...
+        contains(liquidStats.Properties.VariableNames, 'mean', 'IgnoreCase', true));
+    
+    stdCols = liquidStats.Properties.VariableNames(...
+        contains(liquidStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        ~contains(liquidStats.Properties.VariableNames, 'Inorganic', 'IgnoreCase', true) & ...
+        contains(liquidStats.Properties.VariableNames, {'std','std_'}, 'IgnoreCase', true));
+        
+    binCols = liquidStats.Properties.VariableNames(...
+        contains(liquidStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        ~contains(liquidStats.Properties.VariableNames, 'Inorganic', 'IgnoreCase', true) & ...
+        contains(liquidStats.Properties.VariableNames, {'fun1','bincountValid','nummissing'}, 'IgnoreCase', true));
+    
+    if ~isempty(meanCols)
+        vals = liquidStats.(meanCols{1});
+        % Only scale true physical values; leave -9999 and -8888 untouched
+        validMask = (vals ~= -9999) & (vals ~= -8888) & ~isnan(vals);
+        vals(validMask) = vals(validMask) * liquidConversionFactor;
+        
+        % Ensure any residual NaNs become -9999
+        vals(isnan(vals)) = -9999; 
+        liquidSeaBassTable.(shortname) = vals;
+    else
+        liquidSeaBassTable.(shortname) = repmat(-9999, height(liquidStats), 1);
+    end
+
+    if ~isempty(stdCols)
+        stdVals = liquidStats.(stdCols{1});
+        validStdMask = (stdVals ~= -9999) & (stdVals ~= -8888) & ~isnan(stdVals);
+        stdVals(validStdMask) = stdVals(validStdMask) * liquidConversionFactor;
+        stdVals(~validStdMask) = -9999; % standard deviation for non-detects/missing is -9999
+        liquidSeaBassTable.([shortname '_sd']) = stdVals;
+    else
+        liquidSeaBassTable.([shortname '_sd']) = repmat(-9999, height(liquidStats), 1);
+    end
+    
+    if ~isempty(binCols)
+        liquidSeaBassTable.([shortname '_bincount']) = liquidStats.(binCols{1});
+    else
+        liquidSeaBassTable.([shortname '_bincount']) = zeros(height(liquidStats), 1);
+    end
+end
+
+%% THIRD FILE: PARTICULATE
+partFile = 'Particulate_Carb_2024_Bioscape.xlsx';
+partData = readtable(fullfile(nutrientsFolder, partFile)); % Read the  data from the specified Excel file
+partData.station = strtrim(partData.station);
+
+% UNIT CONVERSION
+% mass of carbon (mg) = percent carbon% /  100 * weight analyzed (mg)
+vol_L = 0.03; % all had filter volume of 30 mL
+
+% MG: calculate total carbon mass in mg from percent and analyzed weight
+total_carbon_mg = (partData.Particulate_Total_Carbon /100) .* partData.Total_Carbon_Weight_Analyzed;
+organic_carbon_mg = (partData.Organic_Carbon /100) .* partData.Organic_C_Weight_Analyzed;
+
+% raw concentrations in mg/m^3
+poc_mg_m3 = (organic_carbon_mg / vol_L) * 1000;
+pc_mg_m3 = (total_carbon_mg/ vol_L) * 1000;
+pic_mg_m3 = pc_mg_m3 - poc_mg_m3; % calculated from poc and pc
+
+% Assign raw mg/m^3 variables back to table for grouping
+partData.Particulate_Total_Carbon = pc_mg_m3;
+partData.Organic_Carbon = poc_mg_m3;
+partData.Calculated_Inorganic_Carbon = pic_mg_m3;
+
+%% variables
+partVars = partData.Properties.VariableNames;
+partColumns = partVars(contains(partVars, {'Particulate_Total_Carbon','Organic_Carbon','Calculated_Inorganic_Carbon'}, 'IgnoreCase', true));
+
+% run groupsummary 
+partStats = groupsummary(partData, 'station', {'mean', 'std', bincountFunction}, partColumns);
+partSeaBassTable = table(); 
+partSeaBassTable.station = partStats.station;
+
+% Dynamic mapping - column 1 = keyword, column 2 = seabass name
+% conversions to match seabass units
+partMap = { ...
+    'Particulate_Total_Carbon',         'PC',    (1/ molar_mass_C);       % mg/m^3 -> mmol/m^3
+    'Organic_Carbon',                   'POC',   1;                       % mg/m^3
+    'Calculated_Inorganic_Carbon',      'PIC',   1/(molar_mass_C * 1000); % mg/m^3 -> mol/m^3
+    };
+
+% same forloop
+for i = 1:size(partMap,1)
+    keyword   = partMap{i,1};
+    shortname = partMap{i,2};
+    convFactor = partMap{i,3};
+    
+    meanCols = partStats.Properties.VariableNames(...
+        contains(partStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        contains(partStats.Properties.VariableNames, 'mean', 'IgnoreCase', true));
+    stdCols = partStats.Properties.VariableNames(...
+        contains(partStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        contains(partStats.Properties.VariableNames, {'std','std_'}, 'IgnoreCase', true));
+    binCols = partStats.Properties.VariableNames(...
+        contains(partStats.Properties.VariableNames, keyword, 'IgnoreCase', true) & ...
+        contains(partStats.Properties.VariableNames, {'fun1','bincountFunction','nummissing'}, 'IgnoreCase', true));
+
+    if ~isempty(meanCols)
+        partSeaBassTable.(shortname) = partStats.(meanCols{1}) * convFactor;
+    else
+        partSeaBassTable.(shortname) = repmat(-9999, height(partStats), 1);
+    end
+    
+    if ~isempty(stdCols)
+        partSeaBassTable.([shortname '_sd']) = partStats.(stdCols{1}) * convFactor;
+    else
+        partSeaBassTable.([shortname '_sd']) = repmat(-9999, height(partStats), 1);
+    end
+    
+    if ~isempty(binCols)
+        partSeaBassTable.([shortname '_bincount']) = partStats.(binCols{1});
+    else
+        partSeaBassTable.([shortname '_bincount']) = zeros(height(partStats), 1);
+    end
+end
+
+%% site and station mapping
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+%fileNames = {'Rietvlei_Nutrients.xlsx', 'Klein_River_Estuary_Nutrients.xlsx', 'Theewaterskloof_Nutrients.xlsx', 'Zeekoevlei_Nutrients.xlsx'};
+% Identify which stations correlate to each site defined above
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F', 'TW4A'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+% attatch metadata and export files by type and site
+dataTables = {nutrientsSeaBassTable, liquidSeaBassTable, partSeaBassTable};
+typeSuffixes = {'Nutrients', 'Liquid_Carbon', 'Particulate_Carbon'};
+% load metadata table
+metaPath = '/Users/eveoliker/Downloads/NASA Internship';
+metadataTable = readtable(fullfile(metaPath, 'BIOSCAPE_metadataTable.xlsx'));
+
+for t = 1:length(dataTables)
+    currentTable = dataTables{t};
+    typeSuffix = typeSuffixes{t};
+    % attatch metadata columns
+    currentTable.lat = zeros(height(currentTable),1);
+    currentTable.lon = zeros(height(currentTable),1);
+    currentTable.date = zeros(height(currentTable),1);
+    currentTable.time = duration(NaN(height(currentTable),1),0,0);
+
+    for i = 1:height(currentTable)
+        stn = currentTable.station{i};
+        metaRow = strcmpi(metadataTable.station, stn);
+        if any(metaRow)
+            currentTable.lat(i) = metadataTable.lat(metaRow);
+            currentTable.lon(i) = metadataTable.lon(metaRow);
+            currentTable.date(i) = metadataTable.date(metaRow);
+
+            tempExcel = metadataTable.time(metaRow);
+            if ~isnan(tempExcel) && tempExcel > 0
+                currentTable.time(i) = timeofday(datetime(tempExcel, 'ConvertFrom', 'excel'));
+            end
+        end
+    end
+
+    % fill NaN with missing -9999
+    numCols = varfun(@isnumeric, currentTable, 'OutputFormat', 'uniform');
+    numMat = currentTable{:, numCols};
+    numMat(isnan(numMat)) = -9999;
+    currentTable{:, numCols} = numMat;
+
+    %% Save files by dataset type
+    for s = 1:length(siteNames)
+        currentSite = siteNames{s};
+        currentStationList = stationsPerSite{s};
+        siteRows = matches(currentTable.station, currentStationList);
+        siteTable = currentTable(siteRows, :);
+        outFileName = sprintf('%s_%s.xlsx', currentSite, typeSuffix);
+        outPath = fullfile(nutrientsFolder, outFileName);
+
+        if isfile(outPath), delete(outPath); end
+        if ~isempty(siteTable)
+            writetable(siteTable, outPath);
+            fprintf('Saved %s (%d stations)\n', outFileName, height(siteTable));
+        end
+    end
+end
