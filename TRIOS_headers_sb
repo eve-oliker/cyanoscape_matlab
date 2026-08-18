@@ -1,0 +1,162 @@
+% TRIOS instrument add headers and SB
+% Eve Oliker
+% 06/13/2026
+
+clc;
+clear;
+warning('off', 'MATLAB:table:ModifiedAndSavedVarnames');
+
+%% Open folder
+TriOSFolder = '/path/to/trios';
+TriOSOutputFolder = '/output/folder/path';
+metadataPath = '/path/to/metadata';
+metadataTable = readtable(metadataPath, 'VariableNamingRule', 'preserve');
+
+if ~exist(TriOSOutputFolder, 'dir'); mkdir(TriOSOutputFolder); end
+
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+%% Set up fields and units
+fieldsList = {'Wavelength','Lsky', 'Lsky_sd', 'Lsky_bincount', ...
+    'Lt', 'Lt_sd', 'Lt_bincount', 'Es', 'Es_sd', 'Es_bincount', ...
+    'Lw', 'Rrs' };
+ 
+unitsList = {'nm', 'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none', 'uW/cm^2/nm', 'uW/cm^2/nm', 'none',...
+    'uW/cm^2/nm/sr', '1/sr' };
+
+dataType = 'above_water';
+projectDocuments = 'TBD';
+measurementDepth = '0.0';
+calibration = 'Generic_4RT_White_Correction.wrc';
+
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    stationsForThisSite = stationsPerSite{s};
+    for st = 1:length(stationsForThisSite)     %loop through every station inside the current site
+        currentStation = stationsForThisSite{st};
+        currentFile = [currentStation, '_TRIOS_Rrs_all_data.xlsx'];
+        excelFile = fullfile(TriOSFolder, currentFile);
+        outputName = [currentStation, '_TRIOS_Rrs_With_Headers.xlsx'];
+        SEoutputFile = fullfile(TriOSOutputFolder, outputName);
+    
+        if ~isfile(excelFile); fprintf('File not found: %s. Skipping.', excelFile); continue;
+        end
+
+        siteTable = readtable(excelFile, 'VariableNamingRule', 'preserve');     % Read target matrix
+        metaRow = strcmpi(metadataTable.station, currentStation);         %% metadata matching for current station
+
+        szVal = -9999;
+        if any(metaRow) && ismember('secchi_depth', metadataTable.Properties.VariableNames)
+            tempSZ = metadataTable.secchi_depth(metaRow);
+            if ~isnan(tempSZ) && ~ismissing(tempSZ); szVal = tempSZ; end
+        end
+
+        %% Generate metadata using project headers function
+        project_info = Seabass_project_headers(currentSite, currentStation, fieldsList, unitsList);
+        headerStartDate = project_info.start_date;
+
+        % make the field for /data_file_name match the ultimate sb output file
+        sbFileName = sprintf('BIOSCAPE-TRIOS-%s-%s-%s-R1.sb', currentStation, dataType, char(headerStartDate));
+        project_info.data_file_name = sbFileName;
+        project_info.data_type = dataType;
+        project_info.documents = projectDocuments;
+
+        % Update file and data type contexts
+        project_info.measurement_depth = measurementDepth;
+        project_info.calibration_files = calibration;
+        project_info.secchi_depth = szVal;
+        if iscell(szVal), szVal = szVal{1}; end         % convert szVal to string
+        if isnumeric(szVal); project_info.secchi_depth = [num2str(szVal)]; else; project_info.secchi_depth = [char(szVal)]; end
+
+        fields = fieldnames(project_info); % extracts a list of the text labels as an array of strings
+
+        headerCellArray = {};
+        headerCellArray{end+1, 1} = '/begin_header';
+    
+        for f = 1:length(fields)         % Format every structure as standard text
+            fieldName = fields{f};
+            val = project_info.(fields{f});
+            if strcmp(fieldName, 'secchi_depth'), continue; end             % skip secchi to place manually
+
+            if isnumeric(val)
+                if isempty(val)
+                    val = '';
+                else
+                    val = num2str(val);
+                end
+            end
+            val = char(val);
+            headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+
+            % insert secchi below measurement_depth
+            if strcmp(fieldName, 'measurement_depth')
+                secchiVal = project_info.secchi_depth;
+                if iscell(secchiVal), secchiVal = secchiVal{1}; end
+                if isnumeric(secchiVal), secchiVal = num2str(secchiVal); end
+                headerCellArray{end+1, 1} = sprintf('/secchi_depth=%s', char(project_info.secchi_depth));
+            end
+        end
+
+        %% Add SeaBASS block separator comments above fields
+        % add specifics
+        station = {['/station=' currentStation]};
+        manufact = '/instrument_manufacturer=TriOS';
+        model = '/instrument_model=RAMSES';
+
+        waterNotes = 'NA'; weatherNotes = 'NA';
+        stationIdx = strcmp(string(metadataTable.station), currentStation);         % Match row for current station
+        
+        if any(stationIdx)
+            waterVal = metadataTable.Water_surface_notes(stationIdx);
+            weatherVal = metadataTable.Weather_notes(stationIdx);
+            if iscell(waterVal), waterVal = waterVal{1}; end             % convert to text if needed
+            if iscell(weatherVal), weatherVal = weatherVal{1}; end
+        
+            % assign text if non-empty and not missing
+            if ~isempty(waterVal) && ~all(ismissing(waterVal))
+                waterNotes = char(waterVal);
+            end
+            if ~isempty(weatherVal) && ~all(ismissing(weatherVal))
+                weatherNotes = char(weatherVal);
+            end
+        end
+
+        comments = {'!', '! Comments', ...
+            '! Rrs glint correction and water leaving radiance (Lw) was calculated following Mobley (1999)',...
+            '! The TriOS system was deployed for this study on a boat-based mount configuration held in position by an instrument operator.', ...
+            ['! Water surface comments: ' waterNotes], ...
+            ['! Weather comments: ' weatherNotes] ...
+            };
+        insertBlock = [station; manufact; model; comments(:)];
+        idx = find(contains(headerCellArray, '/fields='));
+        
+        if ~isempty(idx)
+            headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+        else
+            headerCellArray = [headerCellArray; insertBlock];
+        end
+        headerCellArray{end+1, 1} = '/end_header';
+
+        if isfile(SEoutputFile)
+            delete(SEoutputFile);
+        end
+    
+        % Write header block to the input excel file (if intended) or to outputFile
+        writecell(headerCellArray, SEoutputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+        % Write table to the output file starting after header
+        startRow = length(headerCellArray) + 1;
+        writetable(siteTable, SEoutputFile, 'FileType', 'spreadsheet','Range', ['A' num2str(startRow)], 'WriteVariableNames', false);
+        fprintf('Saved: %s\n', SEoutputFile);
+
+        %% Call the file post-processing function for this site
+        headerStartDate = project_info.start_date;
+        convert_excel_to_seabass(TriOSOutputFolder, dataType, currentStation, headerStartDate);
+    end
+end
