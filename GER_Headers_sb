@@ -1,0 +1,203 @@
+% GER instrument add headers and SB
+% Eve Oliker
+% 06/13/2026
+
+clc; clear; warning('off', 'MATLAB:table:ModifiedAndSavedVarnames');
+
+%% Folder setup
+GERFolder = '/path/to/GER/folder';
+GERExcelOutputFolder = '/path/to/excel/output';
+GERSBOutputFolder = '/path/for/.sb/output';
+
+% import metadata
+metadataPath = '/path/to/metadata
+metadataFile = fullfile(metadataPath, 'BIOSCAPE_metadataTable.xlsx');
+metadataTable = readtable(metadataFile, 'VariableNamingRule', 'preserve');
+
+if ~exist(GERExcelOutputFolder, 'dir'), mkdir(GERExcelOutputFolder); end
+if ~exist(GERSBOutputFolder, 'dir'), mkdir(GERSBOutputFolder); end
+
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+% Identify which stations correlate to each site defined above
+stationsPerSite = {...
+    {'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},... %'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E',
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},... % data for all sites
+    {'TW2B', 'TW2C'}, ... % site TW2D does not exist, 'TW1A', 'TW2A', 'TW3A', 'TW3C', 'TW3E', 'TW3F'
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+%% Set up fields and units
+fieldsList = {'Wavelength','Lplaq', 'Lplaq_sd', 'Lplaq_bincount', ...
+    'Lsky', 'Lsky_sd', 'Lsky_bincount', ...
+    'Lt', 'Lt_sd', 'Lt_bincount', ...
+    'Es', 'Lw', 'Rrs',
+    };
+unitsList = {'nm','uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm', 'uW/cm^2/nm/sr', '1/sr'};
+dataType = 'above_water';
+projectDocuments = 'TBD';
+water_depth = '0.0';
+% missing calibration file
+% calibration_file = 'file.name.here';
+
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    currentStationList = stationsPerSite{s};
+    %loop through every station inside the current site
+    for st = 1:length(currentStationList)
+        currentStation = currentStationList{st};
+        currentFile = [currentStation, '_GER_Rrs_all_data.xlsx'];
+        excelFile = fullfile(GERFolder, currentFile);
+        outputName = [currentStation, '_GER_Rrs_With_Headers.xlsx'];
+        GERoutputFile = fullfile(GERExcelOutputFolder, outputName);
+        if ~isfile(excelFile)
+            fprintf('File not found: %s. Skipping.', excelFile);
+            continue;
+        end
+        siteTable = readtable(excelFile, 'VariableNamingRule', 'preserve');     % Read target matrix
+        siteTable.Properties.VariableNames = lower(siteTable.Properties.VariableNames);
+
+       %% Metadata matching for current station
+       metaRow = strcmpi(metadataTable.station, currentStation);
+
+       szVal = -9999;
+       if any(metaRow) && ismember('secchi_depth', metadataTable.Properties.VariableNames)
+           tempSZ = metadataTable.secchi_depth(metaRow);
+           if ~isnan(tempSZ) && ~ismissing(tempSZ)
+               szVal = tempSZ;
+           end
+       end
+        
+        %% Generate metadata using project headers function
+       % Translation loop - move through metadata fields
+       headerPath = '/path/to/header/function';
+       project_info = Seabass_project_headers(currentSite, currentStation, fieldsList, unitsList);
+       headerStartDate = project_info.start_date;
+    
+       % make the field for /data_file_name match the ultimate sb output file
+       sbFileName = sprintf('BIOSCAPE-GER-%s-%s-%s-R1.sb', currentStation, dataType, char(headerStartDate));
+    
+       project_info.data_file_name = sbFileName;
+       project_info.data_type = dataType;
+       project_info.documents = projectDocuments;
+       project_info.measurement_depth = 0.0;
+       project_info.secchi_depth = szVal;
+
+       % convert szVal to string
+       if iscell(szVal), szVal = szVal{1}; end
+       if isnumeric(szVal)
+           project_info.secchi_depth = [num2str(szVal)];
+       else
+           project_info.secchi_depth = [char(szVal)];
+       end
+
+       fields = fieldnames(project_info);
+      
+        %% Build the SeaBASS file cell array
+        headerCellArray = {};
+        headerCellArray{end+1, 1} = '/begin_header';
+    
+        % Format every structure as standard text definitions
+        for f = 1:length(fields)
+            fieldName = fields{f};
+            val = project_info.(fields{f});
+            % skip secchi to place manually
+            if strcmp(fieldName, 'secchi_depth'), continue; end
+
+            if isnumeric(val)
+                if isempty(val)
+                    val = '';
+                else
+                    val = num2str(val);
+                end
+            end
+
+            % insert secchi below measurement_depth
+            if strcmp(fieldName, 'measurement_depth')
+                secchiVal = project_info.secchi_depth;
+                if iscell(secchiVal), secchiVal = secchiVal{1}; end
+                if isnumeric(secchiVal), secchiVal = num2str(secchiVal); end
+                headerCellArray{end+1, 1} = sprintf('/secchi_depth=%s', char(project_info.secchi_depth));
+            end
+
+            val = char(val);
+            headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+        end
+        %% Add SeaBASS block separator comments above fields
+        % and add specifics
+        station = {['/station=' currentStation]};
+        manufact = '/instrument_manufacturer=Spectral_Vista_Corporation';
+        model = '/instrument_model=GER1500';
+       % calibration = '/calibration_files=Generic_4RT_White_Correction.wrc';
+
+       % Default both to 'NA'
+       waterNotes = 'NA';
+       weatherNotes = 'NA';
+
+       % Match row for current station
+       stationIdx = strcmp(string(metadataTable.station), currentStation);
+
+       if any(stationIdx)
+           waterVal = metadataTable.Water_surface_notes(stationIdx);
+           weatherVal = metadataTable.Weather_notes(stationIdx);
+
+           % convert to text if needed
+           if iscell(waterVal), waterVal = waterVal{1}; end
+           if iscell(weatherVal), weatherVal = weatherVal{1}; end
+
+           % assign text if non-empty and not missing
+           if ~isempty(waterVal) && ~all(ismissing(waterVal))
+               waterNotes = char(waterVal);
+           end
+           if ~isempty(weatherVal) && ~all(ismissing(weatherVal))
+               weatherNotes = char(weatherVal);
+           end
+       end
+       
+        comments = {'!', '! Comments', '! Rrs glint correction follows Mobley (1999)', ...
+            '! Rg (known irradiance reflectance of the reference panel provided by manufacturer during calibration) = 0.98',...
+            ['! Water surface comments: ' waterNotes], ...
+            ['! Weather comments: ' weatherNotes], ...
+            '!'};
+       
+        insertBlock = [station; manufact; model; comments(:)];
+        idx = find(contains(headerCellArray, '/fields='));
+          if ~isempty(idx)
+              headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+          else
+              headerCellArray = [headerCellArray; insertBlock];
+          end
+        
+        headerCellArray{end+1, 1} = '/end_header';
+    
+        %% Write output sequence back down into the specific folder
+        % Wipe previous iterations
+        % Build full output filename
+
+        % Check if the output file already exists and delete if necessary
+        if isfile(GERoutputFile)
+            delete(GERoutputFile);
+        end
+    
+        % Write header block to the input excel file (if intended) or to outputFile
+        writecell(headerCellArray, GERoutputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+    
+        % Write table to the output file starting after header
+        startRow = length(headerCellArray) + 1;
+        writetable(siteTable, GERoutputFile, 'FileType', 'spreadsheet', ...
+            'Range', ['A' num2str(startRow)], 'WriteVariableNames', false);
+    
+        fprintf('Successfully saved: %s\n', GERoutputFile);
+
+        %% Call the file post-processing function for this site
+
+        addpath '/Users/eveoliker/Downloads'
+        %headerStartDate = project_info.start_date;
+        headerStartDate = num2str(project_info.start_date);
+        stationChar = char(currentStation);
+        %convert_excel_to_seabass(SEOutputFolder, dataType, stationsForThisSite, headerStartDate);
+        convert_excel_to_seabass(GERExcelOutputFolder, dataType, stationChar, headerStartDate);
+    end
+end
