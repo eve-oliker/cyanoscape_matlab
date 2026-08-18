@@ -1,0 +1,210 @@
+% SE instrument add headers and SB
+% Eve Oliker
+% 06/13/2026
+
+clc; clear; warning('off', 'MATLAB:table:ModifiedAndSavedVarnames');
+
+%% Folder setup
+SEFolder = '/path/to/SE';
+SEExcelOutputFolder = '/path/for/temporary/excel/output';
+SESBOutputFolder = '/path/for/.sb/output/files';
+
+% import metadata
+metadataPath = '/path/to/metadata';
+metadataTable = readtable(fullfile(metadataPath, 'BIOSCAPE_metadataTable.xlsx'));
+metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
+
+if ~exist(SEExcelOutputFolder, 'dir'), mkdir(SEExcelOutputFolder); end
+if ~exist(SESBOutputFolder, 'dir'), mkdir(SESBOutputFolder); end
+
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+%% Set up fields and units
+fieldsList = {'Wavelength', 'Lplaq', 'Lplaq_sd', 'Lplaq_bincount', ...
+    'Lsky', 'Lsky_sd', 'Lsky_bincount', ...
+    'Lt', 'Lt_sd', 'Lt_bincount', ...
+    'Es', 'Lw', 'Rrs'
+    };
+ 
+unitsList = {'nm','uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm/sr', 'uW/cm^2/nm/sr', 'none',...
+    'uW/cm^2/nm', 'uW/cm^2/nm/sr','1/sr'
+    };
+
+dataType = 'above_water';
+projectDocuments = 'TBD';
+water_depth = '0.0';
+calibration_file = 'Generic_4RT_White_Correction.wrc';
+
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    currentStationList = stationsPerSite{s};
+
+    %loop through every station inside the current site
+    for st = 1:length(currentStationList)
+        currentStation = currentStationList{st};
+        currentFile = [currentStation, '_SE_Rrs_all_data.xlsx'];
+        excelFile = fullfile(SEFolder, currentFile);
+        outputName = [currentStation, '_SE_Rrs_With_Headers.xlsx'];
+        SEoutputFile = fullfile(SEExcelOutputFolder, outputName);
+    
+        if ~isfile(excelFile)
+            fprintf('File not found: %s. Skipping.', excelFile);
+            continue;
+        end
+
+        siteTable = readtable(excelFile, 'VariableNamingRule', 'preserve');     % Read target matrix
+        siteTable.Properties.VariableNames = lower(siteTable.Properties.VariableNames);
+        
+        metaRow = strcmpi(metadataTable.station, currentStation);         %% metadata matching for current station
+
+        szVal = -9999;
+        if any(metaRow) && ismember('secchi_depth', metadataTable.Properties.VariableNames)
+            tempSZ = metadataTable.secchi_depth(metaRow);
+            if ~isnan(tempSZ) && ~ismissing(tempSZ)
+                szVal = tempSZ;
+            end
+        end
+     
+        %% Add weather and water notes
+        siteComments = {};
+
+        if any(metaRow)
+            if ismember('weather_notes', metadataTable.Properties.VariableNames)
+                rawWNote = metadataTable.weather_notes(metaRow);
+                if iscell(rawWNote), rawWNote = rawWNote{1}; end
+                wNote = string(rawWNote);
+
+                if ~ismissing(wNote) && wNote ~= "" && wNote ~= "NA"
+                    siteComments{end+1, 1} = sprintf('! Weather Notes [%s]: %s', currentStation, wNote);
+                end
+            end
+
+            if ismember('water_surface_notes', metadataTable.Properties.VariableNames)
+                rawSNote = metadataTable.water_surface_notes(metaRow);
+                if iscell(rawSNote), rawSNote = rawSNote{1}; end
+                sNote = string(rawSNote);
+
+                if ~ismissing(sNote) && sNote ~= "" && sNote ~= "NA"
+                    siteComments{end+1, 1} = sprintf('! Water Surface Notes [%s]: %s', currentStation, sNote);
+                end
+            end
+        end
+
+        %% Generate metadata using project headers function
+        headerPath = '/path/to/header/function';
+        project_info = Seabass_project_headers(currentSite, currentStation, fieldsList, unitsList);
+
+        headerStartDate = project_info.start_date;
+
+        % make the field for /data_file_name match the ultimate sb output file
+        sbFileName = sprintf('BIOSCAPE-SE-%s-%s-%s-R1.sb', currentStation, dataType, char(headerStartDate));
+        project_info.data_file_name = sbFileName;
+        project_info.data_type = dataType;
+        project_info.documents = projectDocuments;
+        project_info.measurement_depth = 0.0;
+        project_info.calibration_files = calibration_file;
+        project_info.secchi_depth = szVal;
+
+        % convert szVal to string
+        if iscell(szVal), szVal = szVal{1}; end
+        if isnumeric(szVal)
+            project_info.secchi_depth = [num2str(szVal)];
+        else
+            project_info.secchi_depth = [char(szVal)];
+        end
+        
+        fields = fieldnames(project_info);
+
+        %% Build the SeaBASS file cell array
+        headerCellArray = {};
+        headerCellArray{end+1, 1} = '/begin_header';
+    
+        % Format every structure as standard text definitions
+        for f = 1:length(fields)
+            fieldName = fields{f};
+            val = project_info.(fieldName);
+            if strcmp(fieldName, 'secchi_depth'), continue; end             % skip secchi to place manually
+
+            if isnumeric(val)
+                if isempty(val)
+                    val = '';
+                else
+                    val = num2str(val);
+                end
+            end
+            val = char(val);
+            headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+
+            % insert secchi below water_depth
+            if strcmp(fieldName, 'water_depth')
+                secchiVal = project_info.secchi_depth;
+                if iscell(secchiVal), secchiVal = secchiVal{1}; end
+                if isnumeric(secchiVal), secchiVal = num2str(secchiVal); end
+                headerCellArray{end+1, 1} = sprintf('/secchi_depth=%s', char(project_info.secchi_depth));
+            end
+        end
+        
+        %% Add SeaBASS block separator comments above fields
+        % and add specifics
+        station = {['/station=' currentStation]};
+        manufact = '/instrument_manufacturer=Spectral_Evolution';
+        model = '/instrument_model=RS-8800_2251353';
+        rho = '/Rho=0.028';
+
+        comments = {'! Comments'...
+        '! Rrs glint correction follows Mobley (1999)' ...
+        '! Negative Lw values in UV/NIR bands are due to residual sky glint correction.'...
+        '! Rg (known irradiance reflectance) = 0.98'...
+        '! NIST traceable sources used for spectral and radiometric calibration for radiance/irradiance measures'...
+        '!'};
+
+        allComments = [comments(:); siteComments];
+        insertBlock = [station; manufact; model; rho; allComments(:)];
+        idx = find(contains(headerCellArray, '/fields='));
+        
+        if ~isempty(idx)
+            headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+        else
+            headerCellArray = [headerCellArray; insertBlock];
+        end
+        
+        headerCellArray{end+1, 1} = '/end_header';
+    
+        %% Write output sequence back down into the specific folder
+        % Wipe previous iterations
+        % Build full output filename
+
+        % Check if the output file already exists and delete if necessary
+        if isfile(SEoutputFile)
+            delete(SEoutputFile);
+        end
+
+        % clear existing .sb output file so convert_excel_to_seabass makes a fresh copy
+        [~, baseName, ~] = fileparts(currentFile);
+        sbOutputFile = fullfile(SESBOutputFolder, [baseName, '.sb']);
+        if exist(sbOutputFile, 'file')
+            delete(sbOutputFile);
+        end
+    
+        % Write header block to the input excel file (if intended) or to outputFile
+        writecell(headerCellArray, SEoutputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+        % Write table to the output file starting after header
+        startRow = length(headerCellArray) + 1;
+        writetable(siteTable, SEoutputFile, 'FileType', 'spreadsheet', ...
+            'Range', ['A' num2str(startRow)], 'WriteVariableNames', false);
+        fprintf('Saved: %s\n', SEoutputFile);
+
+        %% Call the file post-processing function for this site
+        headerStartDate = project_info.start_date;
+        %convert_excel_to_seabass(SEOutputFolder, dataType, stationsForThisSite, headerStartDate);
+        convert_excel_to_seabass(SEExcelOutputFolder, dataType, currentStation, headerStartDate);
+    end
+end
