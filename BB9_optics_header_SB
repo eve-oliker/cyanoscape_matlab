@@ -1,0 +1,187 @@
+%% Processed optics data for BB9 with header
+% By Eve Oliker
+% Created 06/23/2026
+clear;
+clc;
+
+%% Grab data from file
+% load metadata table
+metaPath = '/path/to/metadata';
+metadataTable = readtable(fullfile(metaPath, 'metadatatable.xlsx'));
+metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
+
+%data from file
+inputFolder = '/path/to/input/folder';
+inputFile = 'inputfile.csv';
+filePath = fullfile(inputFolder, inputFile);
+
+%load BB9 dataset
+opts = detectImportOptions(filePath);
+opts.VariableNamingRule = 'preserve';
+mainData = readtable(filePath, 'VariableNamingRule', 'preserve');
+mainData = readtable(filePath, opts);
+
+% depending on origional data form -
+% change wavelegnth prefix from wvl to bb
+mainData.Properties.VariableNames = regexprep(mainData.Properties.VariableNames, 'wvl(\d+)', 'bb$1');
+
+%% standardize variable names
+stationColIdx = strcmpi(mainData.Properties.VariableNames, 'Station');
+mainData.Properties.VariableNames{stationColIdx} = 'station';
+mainData.station = upper(strip(string(mainData.station)));
+metadataTable.station = upper(strip(string(metadataTable.station)));
+
+%% 2: Initialize blank columns for metadata
+mainData.lat = zeros(height(mainData), 1);
+mainData.lon = zeros(height(mainData), 1);
+mainData.date = zeros(height(mainData), 1); % Kept as number for yyyymmdd format
+mainData.time = duration(NaN(height(mainData), 1), 0, 0);
+mainData.secchi_depth = NaN(height(mainData), 1);
+
+%% 3: Identify sites and stations
+% Identify sites and the correlated file names to create/ that were created
+siteNames = {'Rietvlei', 'Theewaterskloof', 'Zeekoevlei'}; % no data for 'Klein_River_Estuary'
+fileNames = {'Rietvlei_BB9_MATLAB.xlsx', 'Theewaterskloof_BB9_MATLAB.xlsx', 'Zeekoevlei_BB9_MATLAB.xlsx'}; % no 'Klein_River_Estuary_BB9_MATLAB.xlsx',
+
+% Identify which stations correlate to each site defined above
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    };
+
+%% 4: Loop - split data into individual files by site
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    currentFile = fileNames{s};
+    currentStationList = stationsPerSite{s}; 
+    outputFile = fullfile(inputFolder, currentFile);
+
+    if exist(outputFile, 'file')
+        delete(outputFile);
+    end
+
+  [~, baseName, ~] = fileparts(currentFile);
+    sbOutputFile = fullfile(inputFolder, [baseName, '.sb']);
+    if exist(sbOutputFile, 'file')
+        delete(sbOutputFile);
+    end
+    
+    targetStations = upper(strip(string(currentStationList))); 
+
+    % Filter rows belonging to the stations for this site
+    siteRowsMask = ismember(mainData.station, targetStations);
+    siteTable = mainData(siteRowsMask, :);
+    siteTable.station = string(siteTable.station);
+   
+   %% Metadata matching loop
+   for i = 1:length(currentStationList)
+       currentStation = currentStationList{i};
+       metaRow = strcmpi(metadataTable.station, currentStation);
+       dataRows = strcmpi(siteTable.station, currentStation);
+
+       if any(metaRow)
+           %siteTable.latitude(dataRows) = metadataTable.lat(metaRow);
+           %siteTable.longitude(dataRows) = metadataTable.lon(metaRow);
+           siteTable.lat(dataRows) = metadataTable.lat(metaRow);
+           siteTable.lon(dataRows) = metadataTable.lon(metaRow);
+           siteTable.date(dataRows) = metadataTable.date(metaRow); % Keeps numeric yyyymmdd
+           siteTable.secchi_depth(dataRows) = metadataTable.secchi_depth(metaRow);
+           tempDateTime = datetime(metadataTable.time(metaRow), 'ConvertFrom', 'excel');
+           siteTable.time(dataRows) = timeofday(tempDateTime);
+       end
+   end
+
+   %% collect and group weather/ water notes
+   siteComments = {};
+   % create mapping table - column name and header title
+   for noteType = ["weather_notes", "water_surface_notes"]
+       if ismember(noteType, metadataTable.Properties.VariableNames)
+           subTable = metadataTable(ismember(metadataTable.station, currentStationList), ["station", noteType]);
+           subTable = subTable(~ismissing(subTable.(noteType)) & subTable.(noteType) ~= "" & subTable.(noteType) ~= "NA", :);
+           [G, uniqueNotes] = findgroups(subTable.(noteType));
+           for g = 1:max(G)
+              stns = strjoin(subTable.station(G == g), '; ');
+               % set header label
+                if noteType == "weather_notes"
+                    label = "Weather Notes";
+                else
+                    label = "Water Surface Notes";
+                end
+                % assemble final string, apend to siteComments
+               siteComments{end+1, 1} = sprintf('! %s [%s]: %s', label, char(stns), char(uniqueNotes(g)));
+           end
+       end
+   end
+   
+   siteTable.secchi_depth(isnan(siteTable.secchi_depth)) = -9999;    % fill missing secchi depth with missing value -9999
+   % replace with seabass SZ    siteTable.SZ = siteTable.secchi_depth;
+
+   %% define fields and units
+   fieldsList = {'station', 'SZ', 'bb440', 'bb470', 'bb488', 'bb532', 'bb630', 'bb650', 'bb700', 'bb715', 'bb770', 'lat', 'lon', 'date', 'time'};
+   unitsList = {'none', 'm', '1/m', '1/m', '1/m', '1/m', '1/m','1/m', '1/m', '1/m', '1/m', 'degrees', 'degrees', 'yyyymmdd', 'hh:mm:ss'};
+
+   dataType = 'scan';
+   projectDocuments = 'TBD';
+   
+   siteTable = siteTable(:, fieldsList);
+
+  %% 5: Call the header function and add start and end lines
+   % Translation loop - move through metadata fields
+   headerPath = '/Users/eveoliker/Downloads/';
+   project_info = Seabass_project_headers(currentSite, currentStationList, fieldsList, unitsList);
+   headerStartDate = project_info.start_date;
+   % make the field for /data_file_name match the ultimate sb output file
+   sbFileName = sprintf('BIOSCAPE-BB9-%s-%s-%s-R1.sb', currentSite, dataType, char(headerStartDate));
+   project_info.data_file_name = sbFileName;
+   project_info.data_type = dataType;
+   project_info.documents = projectDocuments;
+   fields = fieldnames(project_info);
+
+   headerCellArray = {}; % builds sequentially by row
+   headerCellArray{end+1, 1} = '/begin_header';
+
+   % translation loop that moves through metadata fields
+   for f = 1:length(fields)
+       fieldName = fields{f};
+       val = project_info.(fields{f});
+       if isnumeric(val)
+           if isempty(val)
+               val = ''; % empty numeric arrays
+           else
+               val = num2str(val);
+           end
+       end
+       val = char(val); % makes sure val is a char vector
+       headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+   end
+
+   %% insert comments
+   manufact = '/instrument_manufacturer=WET_Labs';
+   model = '/instrument_model=ECO_BB9_Backscattering_Sensor';
+   comments = {'!','! Comments',...
+       '! Meter ships with  calibration sheet providing instrument-specific calibration information'};
+    allComments = [comments(:); siteComments(:)];
+   insertBlock = [manufact; model; allComments(:)];    % insert the comments above the fields line
+
+   idx = find(contains(headerCellArray, '/fields='));
+    if ~isempty(idx)
+        headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+    else
+        headerCellArray = [headerCellArray; insertBlock];
+    end
+    headerCellArray{end+1, 1} = '/end_header';
+
+   outputFile = fullfile(inputFolder, currentFile);
+   if exist(outputFile, 'file')
+       delete(outputFile);
+   end
+
+   %% Write the metadata cells starting at row 1
+   writecell(headerCellArray(:), outputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+   % Write the numerical data rows below the header
+   writetable(siteTable, outputFile, 'FileType', 'spreadsheet', 'WriteMode', 'append', 'WriteVariableNames', false);
+   %% Call the file post-processing function for this site
+   headerStartDate = project_info.start_date;
+   convert_excel_to_seabass(inputFolder, dataType, currentSite, headerStartDate);
+end
