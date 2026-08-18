@@ -1,0 +1,89 @@
+% Generates a SeaBASS metadata header structure for a specific site
+% Note: This script has been adapted from those developed by the glakes project https://doi.org/10.5281/zenodo.21683614 
+% Created by Eve Oliker
+% 06/23/2026
+
+% Inputs: 
+% current site = string/ char of active site name
+% current station list = cell array or string array for the loop
+% fieldsList = seaBASS fields defined in external script
+% unitsList = seaBASS units defined in external script
+
+function project_info = Seabass_project_headers(currentSite, currentStationList, fieldsList, unitsList)
+%% 1-  Start project_info structure
+project_info = struct('investigators',[],'affiliations',[],'contact',[], ...
+    'experiment',[],'cruise',[], ...
+    'data_file_name',[],'documents',[], ...
+    'data_type',[],'calibration_files',[], ...
+    'start_date',[],'end_date',[],...
+    'start_time',[],'end_time',[], ...
+    'north_latitude',[],'south_latitude',[],'east_longitude',[],'west_longitude',[],...
+    'water_depth','NA',...
+    'measurement_depth', 0.5,...
+    'missing',-9999, ...
+    'delimiter','comma', ...
+    'fields',[],'units',[]);
+
+% Bring in constants in metadata
+project_info.calibration_files = 'cal_files_here';
+project_info.investigators = 'Investigator_Name'; 
+project_info.affiliations = 'Affiliation_Name'; 
+project_info.contact = 'contact@contact';
+project_info.experiment = 'Experiment_Name';
+project_info.cruise = currentSite;
+
+%% 2 - write the header and customize by site - grab rows matching the stations of the loop
+metadataPath = fullfile('/metadata/path/and/file'); % Read the master metadata table
+metadataTable = readtable(metadataPath);
+stationSearch = upper(strip(string(currentStationList)));
+
+metaSiteRows = ismember(upper(strip(string(metadataTable.station))), stationSearch); % Run match to check elements 
+siteMetadata = metadataTable(metaSiteRows, :);
+
+if isempty(siteMetadata)
+    warning('No matching metadata found for stations in site: %s', currentSite);
+    return;
+end
+
+%% Add unique site values
+%calculate N/E/S/W and format for SeaBASS
+project_info.north_latitude = sprintf('%.4f[DEG]', max(siteMetadata.lat));
+project_info.south_latitude  = sprintf('%.4f[DEG]', min(siteMetadata.lat));
+project_info.east_longitude  = sprintf('%.4f[DEG]', max(siteMetadata.lon));
+project_info.west_longitude  = sprintf('%.4f[DEG]', min(siteMetadata.lon));
+
+% find and format start and end dates (yyyymmdd)
+startDate = min(siteMetadata.date, [], 'omitnan');
+stopDate = max(siteMetadata.date, [], 'omitnan');
+project_info.start_date = sprintf('%d',startDate);
+project_info.end_date = sprintf('%d',stopDate);
+
+%% add start and stop time (extracts min/max time if available in the spreadsheet)
+timeColMask = strcmpi('time', siteMetadata.Properties.VariableNames); %find the time column
+    if any(timeColMask)
+        actualTimeColName = siteMetadata.Properties.VariableNames{timeColMask};
+        rawTimeData = siteMetadata.(actualTimeColName);
+        stringTimeData = string(rawTimeData);
+        validTimes = stringTimeData(~ismissing(stringTimeData) & stringTimeData ~= "");
+        % treat data as a string array to filter out missing cells
+       if ~isempty(validTimes)
+            % Check if the first value is an Excel decimal fraction
+            if contains(validTimes(1), '.') && ~contains(validTimes(1), ':')
+                % Convert string fractions to doubles, treat them as a fraction of 24 hours
+                numericDays = double(validTimes);
+                durationTimes = duration(numericDays * 24, 0, 0); 
+            else
+                % otherwise, treat as standard 'hh:mm:ss' text strings
+                durationTimes = duration(validTimes); 
+            end
+            % Calculate min and max times
+            startTime = min(durationTimes);
+            endTime   = max(durationTimes);
+            project_info.start_time = sprintf('%s[GMT]', char(startTime));
+            project_info.end_time   = sprintf('%s[GMT]', char(endTime));
+       end
+    end
+% add fields and units - customize for each set
+project_info.fields = char(strjoin(string(fieldsList), ','));
+project_info.units  = char(strjoin(string(unitsList), ','));
+end
