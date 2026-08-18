@@ -1,0 +1,235 @@
+% Nutrients add header, add seabass
+% Eve Oliker
+% 06/06/2026
+
+clear;
+clc;
+
+%% Open folder
+metadataPath = '/path/to/metadata/';
+metadataTable = readtable(fullfile(metadataPath, 'metadata_table_name.xlsx'));
+metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
+
+nutrientsFolder = '/folder/with/nutrients/data';
+excelOutputFolder = fullfile(nutrientsFolder, 'Nutrients_Output');
+if ~exist(excelOutputFolder, 'dir')
+    mkdir(excelOutputFolder);
+end
+
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+%fileNames = {'Rietvlei_Nutrients.xlsx', 'Klein_River_Estuary_Nutrients.xlsx', 'Theewaterskloof_Nutrients.xlsx', 'Zeekoevlei_Nutrients.xlsx'};
+
+% Identify which stations correlate to each site defined above
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F', 'TW4A'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+dataTypes = {'Nutrients', 'Liquid_Carbon', 'Particulate_Carbon'};
+dataType = 'bottle';
+projectDocuments = 'TBD';
+
+for s = 1:length(siteNames)
+    currentSite = siteNames{s};
+    currentStationList = stationsPerSite{s};
+    for t = 1:length(dataTypes)
+        currentType = dataTypes{t};
+        currentFile = sprintf('%s_%s.xlsx',currentSite, currentType);
+        excelFile = fullfile(nutrientsFolder, currentFile);
+    
+       if ~isfile(excelFile)
+           warning('File not found: %s. Skipping.', excelFile);
+           continue;
+       end
+    
+      siteTable = readtable(excelFile);    
+
+    %% define fields, units, header comments by dataset type
+    if strcmp(currentType, 'Nutrients')
+        fieldsList = {'station', 'lat', 'lon', 'date', 'time', 'SZ',...
+             'PO4', 'PO4_sd', 'PO4_bincount', ...
+             'SiO4', 'SiO4_sd', 'SiO4_bincount',...
+             'NO3', 'NO3_sd', 'NO3_bincount', ...
+             'NO2', 'NO2_sd', 'NO2_bincount',...
+             'NH4', 'NH4_sd', 'NH4_bincount'...
+              };
+        unitsList = {'none', 'degrees', 'degrees', 'yyyymmdd', 'hh:mm:ss', 'm',...
+            'mmol/m^3','mmol/m^3', 'none',...
+            'mmol/m^3','mmol/m^3', 'none',...
+            'mmol/m^3','mmol/m^3', 'none',...
+            'mmol/m^3','mmol/m^3', 'none',...
+            'mmol/m^3','mmol/m^3', 'none',...
+            };
+        specificComments = {...
+            '! Inorganic Nutrients Data Notes', ...
+            '! Hitachi Spec, Ocean Science Campus used for PO4 analyses.', ...
+            '! Samples were received unfiltered - affects precision of results.', ...
+            '! Multiple nutrient samples from RV2A were received with lids cracked.', ...
+            '! Ammonia corrected by 34.47% quality control', ...
+            '! Nutrients methodology: Seal Auto analyzer 3', ...
+            '! Phosphate methodology reference: Murphy J. & Riley J.P. (1962)', ...
+            '! Phosphate wavelength (nm) = 880', ...
+            '! Silicate methodology reference: Grasshoff K et al. (1983)', ...
+            '! Silicate wavelength (nm) = 820', ...
+            '! Nitrite wavelength (nm) = 550', ...
+            '! Ammonia methodology reference: Berthelot M. (1859)', ...
+            '! Ammonia wavelength (nm) = 660'};
+    elseif strcmp(currentType, 'Liquid_Carbon')
+        fieldsList = {'station', 'lat', 'lon', 'date', 'time', 'SZ',...
+            'DIC_L', 'DIC_L_sd', 'DIC_L_bincount',...
+            'DOC_L', 'DOC_L_sd', 'DOC_L_bincount',...
+            'Total_C', 'Total_C_sd', 'Total_C_bincount'...
+            };
+        unitsList = {'none', 'degrees', 'degrees', 'yyyymmdd', 'hh:mm:ss', 'm',...
+            'umol/L', 'umol/L', 'none',...
+            'umol/L', 'umol/L', 'none',...
+            'mg/m^3', 'mg/m^3', 'none'...
+            };
+        specificComments = {...
+            '! Methodology for Liquid Carbon 2024',...
+            '! Used Elementar Vario TOC Cube (S/N 38201014)', ...
+            '! doc_l values ~18 umol/L represent valid measured field concentrations for Rietvlei.'...
+            };
+    elseif strcmp(currentType, 'Particulate_Carbon')
+        fieldsList = {'station', 'lat', 'lon', 'date', 'time', 'SZ',...
+            'PC', 'PC_sd', 'PC_bincount',...
+            'POC', 'POC_sd', 'POC_bincount',...
+            'PIC', 'PIC_sd', 'PIC_bincount'...
+            };
+        unitsList = {'none', 'degrees', 'degrees', 'yyyymmdd', 'hh:mm:ss', 'm',...
+            'mmol/m^3', 'mmol/m^3', 'none',...
+            'mg/m^3', 'mg/m^3', 'none',...
+            'mol/m^3', 'mol/m^3', 'none'...
+            };
+        specificComments = {...
+            '! Methodology for Particulate Carbon 2024',...
+            '! Used Elementar Vario TOC Cube (S/N 38201014)', ...
+            '! Filter volume = 30 mL for all particulate carbon samples.'};
+    end
+
+%% Add secchi information
+    secchiIdx = find(strcmpi(siteTable.Properties.VariableNames, 'secchi_depth'), 1);
+    if isempty(secchiIdx)
+        siteTable.secchi_depth = nan(height(siteTable), 1);
+    else
+        % Standardize name to secchi_depth
+        siteTable.Properties.VariableNames{secchiIdx} = 'secchi_depth';
+    end
+    
+    for i = 1:length(currentStationList)
+        currentStation = currentStationList{i};
+        metaRow = strcmpi(metadataTable.station, currentStation);
+        dataRows = strcmpi(siteTable.station, currentStation);
+        if any(metaRow)
+            siteTable.secchi_depth(dataRows) = metadataTable.secchi_depth(metaRow);
+        end
+    end
+
+    siteTable.secchi_depth(isnan(siteTable.secchi_depth)) = -9999;     % fill missing secchi depth with missing value -9999
+    siteTable.SZ = siteTable.secchi_depth;     % replace with seabass SZ
+    siteTable = siteTable(:, fieldsList);
+    
+    %% add water and weather notes
+    siteComments = {};     % create mapping table - column name and header title
+    
+    stationsInFile = unique(strip(string(siteTable.station)));
+    for noteType = ["weather_notes", "water_surface_notes"]
+        if ismember(noteType, metadataTable.Properties.VariableNames)
+            subTable = metadataTable(ismember(metadataTable.station, stationsInFile), ["station", noteType]);
+            subTable = subTable(~ismissing(subTable.(noteType)) & subTable.(noteType) ~= "" & subTable.(noteType) ~= "NA", :);
+
+            [G, uniqueNotes] = findgroups(subTable.(noteType));
+            for g = 1:max(G)
+                stns = strjoin(subTable.station(G == g), '; ');
+                if noteType == "weather_notes"                 % set header label
+                    label = "Weather Notes";
+                else
+                    label = "Water Surface Notes";
+                end
+                % assemble final string, apend to siteComments
+                siteComments{end+1, 1} = sprintf('! %s [%s]: %s', label, char(stns), char(uniqueNotes(g)));
+            end
+        end
+    end
+
+
+%% header function
+    headerPath = 'directory/to/header/function';    
+    if strcmp(currentType, 'Liquid_Carbon') || strcmp(currentType, 'LiquidCarbon')
+        sbDataTag = 'LIQUID_CARBON';
+    elseif strcmp(currentType, 'Particulate_Carbon') || strcmp(currentType, 'ParticulateCarbon')
+        sbDataTag = 'PARTICULATE_CARBON';
+    elseif strcmp(currentType, 'Nutrients')
+        sbDataTag = 'NUTRIENTS';
+    else
+        sbDataTag = upper(currentType);
+    end
+    
+    project_info = Seabass_project_headers(currentSite, currentStationList, fieldsList, unitsList);
+
+    headerStartDate = project_info.start_date;
+    % make the field for /data_file_name match the ultimate sb output file
+    sbFileName = sprintf('BIOSCAPE-%s-%s-%s-%s-R1.sb', ...
+        sbDataTag, currentSite, dataType, char(headerStartDate));
+    
+    project_info.data_file_name = sbFileName;
+    project_info.data_type = dataType;
+    project_info.documents = projectDocuments;
+    
+    fields = fieldnames(project_info);
+    
+    %% Build the SeaBASS file cell array
+    headerCellArray = {};
+    headerCellArray{end+1, 1} = '/begin_header';
+    
+    % Format every structure as standard text definitions
+    for f = 1:length(fields)
+        fieldName = fields{f};
+        val = project_info.(fields{f});
+        if isnumeric(val)
+            if isempty(val)
+                val = '';
+            else
+                val = num2str(val);
+            end
+        end
+        val = char(val);
+        headerCellArray{end+1,1} = sprintf('/%s=%s', fieldName, val);
+    end
+    
+    below_detect = '/below_detection_limit=-8888';
+    insertBlock = [below_detect; specificComments(:); siteComments(:)];
+
+    idx = find(contains(headerCellArray, '/fields='));
+    if ~isempty(idx)
+        headerCellArray = [headerCellArray(1:idx-1); insertBlock; headerCellArray(idx:end)];
+    else
+        headerCellArray = [headerCellArray; insertBlock];
+    end
+    headerCellArray{end+1, 1} = '/end_header';
+    
+    %% Save directly to Excel files
+    % replace to avoid overwriting input
+    outputFileName = strrep(currentFile, '.xlsx', '_prepped.xlsx');
+    excelOutputFile = fullfile(excelOutputFolder, outputFileName);
+
+    % replace file if it already exists
+    if isfile(excelOutputFile)
+        delete(excelOutputFile);
+    end
+    %% Write the metadata cells starting at row 1
+    writecell(headerCellArray(:), excelOutputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
+
+    % Write the numerical data rows below the header
+    writetable(siteTable, excelOutputFile, 'FileType', 'spreadsheet', 'WriteMode', 'append', 'WriteVariableNames', false);
+    fprintf('Saved: %s\n\n', excelOutputFile);
+    fprintf('Successfully processed SeaBASS file for: %s\n', currentSite);
+
+    %% call post-processing function for this site
+    headerStartDate = project_info.start_date;
+    convert_excel_to_seabass(excelOutputFolder, dataType, currentSite, headerStartDate);
+    fprintf('processed SeaBASS file for: %s\n', currentSite);
+    end
+end
