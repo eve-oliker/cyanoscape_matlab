@@ -1,0 +1,151 @@
+%% File post-processing - turn excel files into proper format for seabass
+% Note: This script has been adapted from those developed by the glakes project https://doi.org/10.5281/zenodo.21683614
+% Edited by Eve Oliker
+% Last updated 06/23/2026
+
+function convert_excel_to_seabass(inputFolder, dataType, currentSite, headerStartDate)
+
+% define site and station names
+siteNames = {'Rietvlei', 'Klein_River_Estuary', 'Theewaterskloof', 'Zeekoevlei'};
+stationsPerSite = {...
+    {'RV1A', 'RV1B', 'RV1C', 'RV1D', 'RV1E', 'RV2A', 'RV2B', 'RV2C', 'RV2D', 'RV2E', 'RV3A', 'RV3B', 'RV3C'},...
+    {'KR1A', 'KR1B', 'KR1C', 'KR1D', 'KR1E'},...
+    {'TW1A', 'TW2A', 'TW2B', 'TW2C', 'TW3A', 'TW3C', 'TW3E', 'TW3F'}, ...
+    {'ZK1A', 'ZK1B', 'ZK1C', 'ZK1D', 'ZK1E', 'ZK2A', 'ZK2B', 'ZK2C', 'ZK2D', 'ZK2E', 'ZK3A', 'ZK3B', 'ZK3C', 'ZK3D', 'ZK3E'}...
+    }; 
+
+matchedSiteFolder = ''; %% Identify Parent Site Folder Name
+siteIdx = find(strcmpi(siteNames, currentSite), 1); % check if current site is a site name (i.e. Klein river)
+
+if ~isempty(siteIdx)
+    matchedSiteFolder = siteNames{siteIdx};
+else
+    % Check if currentSite is a station name (e.g., 'KR1A')
+    for s = 1:length(stationsPerSite)
+        if any(strcmpi(stationsPerSite{s}, currentSite))
+            matchedSiteFolder = siteNames{s};
+            break;
+        end
+    end
+end
+
+% Fallback in case no match is found
+if isempty(matchedSiteFolder)
+    matchedSiteFolder = currentSite; 
+end
+
+%% Optional sub-folder organization
+% Check what data type we are working with based on the input folder path
+if contains(inputFolder, 'GER', 'IgnoreCase', true)
+    subFolder = 'GER';
+elseif contains(inputFolder, 'TSS', 'IgnoreCase', true)
+    subFolder = 'TSS';
+elseif contains(inputFolder, 'Chl_A', 'IgnoreCase', true)
+    subFolder = 'Chl_A';
+else
+    subFolder = ''; % Fallback to main folder if no match
+end
+
+%% Define file input and output location
+% where to find the files that need to be converted:
+filePath = 'filepath/here';
+outputPath = 'output/filepath/here';
+
+% where to put the converted files in .sb format:
+outputFolder = fullfile(outputPath, subFolder, matchedSiteFolder);
+
+if ~exist(outputFolder, 'dir')
+    mkdir(outputFolder);
+end
+
+% finds the excel files (first looks for anything ending in _prepped
+% if not found, looks for any excel file in the defined input folder.)
+  allXlsx = dir(fullfile(inputFolder, '*.xlsx'));
+
+    matchIdx = arrayfun(@(f) contains(f.name, currentSite, 'IgnoreCase', true) && ...
+                             ~startsWith(f.name, '~$') && ...
+                             ~contains(f.name, 'Reference', 'IgnoreCase', true), allXlsx);
+    
+    xlsxFiles = allXlsx(matchIdx);
+    
+    if isempty(xlsxFiles)
+        warning('No matching Excel files found for station/site "%s" in folder: %s', currentSite, inputFolder);
+        return;
+    end
+
+%% Define excel files that should not be edited/converted
+% i.e. metadata, references, temporary files created by the other script, etc
+
+for k = 1:length(xlsxFiles)
+    % ignore temporary excel lock files
+     if startsWith(xlsxFiles(k).name, '~$')
+         continue;
+     end
+    % ignore reference file
+     if contains(xlsxFiles(k).name, 'Reference', 'IgnoreCase', true)
+         continue; 
+     end
+    
+     % defines excel files to be edited
+     excelFile = fullfile(inputFolder, xlsxFiles(k).name);
+
+  %% Construct the standardized seabass file name:
+  % EXPERIMENT-NAME-DATATYPE_YYYYMMDDHHMM_RELEASE#.sb
+  
+    currentXlsxName = xlsxFiles(k).name;
+
+      if contains(xlsxFiles(k).name, 'TSS', 'IgnoreCase', true)
+          dataTypeTag = 'TSS_TURBIDITY'; 
+      elseif contains(currentXlsxName, 'Chl', 'IgnoreCase', true)
+          dataTypeTag = 'CHL_A';         
+      elseif contains(currentXlsxName, 'GER', 'IgnoreCase', true)
+          dataTypeTag = 'GER';         
+      else
+          dataTypeTag = 'UNKNOWN';
+      end
+ 
+    sbFileName = sprintf('BIOSCAPE-%s-%s-%s-%s-R1.sb', ...
+        dataTypeTag, currentSite, dataType, char(headerStartDate)); % Force char array
+    % specify data type in specific script.
+
+    outputFile = fullfile(outputFolder, sbFileName);
+        if exist(outputFile, 'file')
+            delete(outputFile);
+        end
+
+    %% read contents, remove additional header lines
+    rawContent = readcell(excelFile);
+    fileID = fopen(outputFile, 'w', 'native', 'UTF-8');
+
+    % If it's a header line go over each row of the read cell array, remove excel trailing commas
+    isHeaderBlock = true;
+    for i = 1:size(rawContent, 1)
+        firstCell = string(rawContent{i,1});
+        % Check if this row is a metadata line
+        if isHeaderBlock
+            % Trim and clear empty spacing from the header string
+            line = strtrim(firstCell);
+            fprintf(fileID, '%s\n', line);
+
+            % Once it reaches the /end_header tag, flip the flag.
+            if strcmpi(line, '/end_header')
+                isHeaderBlock = false;
+            end
+
+        else
+            % Data line processing block
+            rowItems = string(rawContent(i,:));
+            % Drop true missing trailing items, but keep numeric values intact
+            rowItems = rowItems(~ismissing(rowItems) & rowItems ~= "");
+            % Format duration arrays to standard text format if any match
+            for c = 1:length(rowItems)
+                if contains(rowItems(c), 'duration')
+                    rowItems(c) = char(rawContent{i,c}, 'hh:mm:ss');
+                end
+            end
+            fprintf(fileID, '%s\n', strjoin(rowItems, ','));
+        end
+    end
+    fclose(fileID);
+    end
+end
