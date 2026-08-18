@@ -169,35 +169,24 @@ for s = 1:length(siteNames)
           else
               headerCellArray = [headerCellArray; insertBlock];
           end
-        
         headerCellArray{end+1, 1} = '/end_header';
-    
-        %% Write output sequence back down into the specific folder
-        % Wipe previous iterations
-        % Build full output filename
 
-        % Check if the output file already exists and delete if necessary
+        %% Write output sequence back down into the specific folder
         if isfile(GERoutputFile)
             delete(GERoutputFile);
         end
     
         % Write header block to the input excel file (if intended) or to outputFile
         writecell(headerCellArray, GERoutputFile, 'FileType', 'spreadsheet', 'Range', 'A1');
-    
         % Write table to the output file starting after header
         startRow = length(headerCellArray) + 1;
         writetable(siteTable, GERoutputFile, 'FileType', 'spreadsheet', ...
             'Range', ['A' num2str(startRow)], 'WriteVariableNames', false);
-    
-        fprintf('Successfully saved: %s\n', GERoutputFile);
+        fprintf('Saved: %s\n', GERoutputFile);
 
         %% Call the file post-processing function for this site
-
-        addpath '/Users/eveoliker/Downloads'
-        %headerStartDate = project_info.start_date;
         headerStartDate = num2str(project_info.start_date);
         stationChar = char(currentStation);
-        %convert_excel_to_seabass(SEOutputFolder, dataType, stationsForThisSite, headerStartDate);
         convert_excel_to_seabass(GERExcelOutputFolder, dataType, stationChar, headerStartDate);
     end
 end
