@@ -1,0 +1,166 @@
+%% Processing and preparing particulate absorption data for SeaBASS
+% This script works with files already in format for seabass that need to be updated
+% Eve Oliker
+% Created June 2026
+
+
+clear; clc;
+
+%% 1: define folder path with seabass files
+folderPath = '/path/to/particulate/files';
+baseFolder = '/path/to/data/';
+outputFolder = baseFolder, 'SeaBASS_Output_Files'
+outputBaseFolder = fullfile(outputFolder, 'Particulate');
+
+% prepare metadata for cloud, wind, wave info
+metadataFile = fullfile(baseFolder, 'BIOSCAPE_MetadataTable.xlsx');
+metaOpts = detectImportOptions(metadataFile);
+metaOpts = setvartype(metaOpts, {'station'}, 'string'); % force station column to string
+metadataTable = readtable(metadataFile, metaOpts);
+
+% standardize column names and values
+metadataTable.Properties.VariableNames = lower(metadataTable.Properties.VariableNames);
+metadataTable.station = upper(strip(string(metadataTable.station)));
+
+Files = dir(fullfile(folderPath, '**', '*.csv'));
+if ~exist(outputBaseFolder, 'dir')
+    mkdir(outputBaseFolder);
+    fprintf('Created new folder: %s\n', outputBaseFolder);
+end
+
+%% Header replacement values
+documents = "CyanoSCape_Filter_pad_particulate_absorption_protocol_Cary4000-IS.pdf";
+affiliation = "NASA_Ames_Research_Center";
+
+%% PROCESS FILES.
+for k=1:length(Files)
+    currentFileFolder = Files(k).folder;
+    currentFileName = Files(k).name;
+    fullInputPath = fullfile(currentFileFolder, currentFileName);
+
+    %% 2: SeaBASS File Name
+    tempName = regexprep(currentFileName, '(?i)^BIOSCAPE(_2023)?[_-]ap[_-]*', 'BIOSCAPE-AP-');
+    % Extract "/start_date" from header
+    startDate = '';
+    fid = fopen(fullInputPath, 'r');     % r = read more
+    if fid ~= -1 %fid = file identifier, if fid = -1, file does not exist
+        % feof - file end of file check
+        % ~feof(fid): keep looping if end of file has not been reached
+        while ~feof(fid)
+            lineStr = fgetl(fid); %fgetl: file get line
+            if ischar(lineStr) && contains (lineStr, '/start_date=')
+                tokens = regexp(lineStr, '/start_date=\s*([^\s!/\\]+)', 'tokens');
+                if ~isempty(tokens)
+                    startDate = tokens{1}{1};
+                end
+                break; % stop reading when header field is found
+            end
+        end
+        fclose(fid);
+     end
+
+    %% Assemble components of file name with "-" separating pieces
+    % $1, 2, 3, 4, = regex backreferences
+    % $1 = BIOSCAPE-AP-
+    % $2 = ([^_]+)  : site name (characters before the next _)
+    % $3 = (Rep\d+) : replicate (Rep) followed by digit
+    pattern = '(?i)^BIOSCAPE-AP-([^_]+)_(Rep\d+)[_-]*(.*)';
+
+    if ~isempty(startDate)
+        replacement = sprintf('BIOSCAPE-AP-$1-scan-%s-$2-$3', startDate);    
+    else
+        replacement = 'BIOSCAPE-AP-$1-scan-$2-$3';
+    end
+
+    sbName = regexprep(tempName, pattern, replacement);
+    % fileparts - ignore file path, existing extension, store the file name in sbFileName 
+    [~, cleanName, ~] = fileparts(sbName);
+    sbFileName = sprintf('%s.sb', cleanName);
+
+    %% 3 - Organize output folders and subfolders
+    relPath = extractAfter(currentFileFolder, folderPath);
+    if isempty(relPath)
+        targetSubfolder = outputBaseFolder;
+    else
+         targetSubfolder = fullfile (outputBaseFolder, relPath);
+    end
+
+    if ~exist(targetSubfolder, 'dir')
+        mkdir(targetSubfolder);
+    end
+
+    %% 4: Read file, update metadata, write file
+    fileData = fileread(fullInputPath);
+    modifiedData = fileData;
+
+    % extract station name from file header
+    % looks for format: /station = STATION_NAME
+    stationMatch = regexp(modifiedData,'(?i)/station=\s*([^\r\n]+)', 'tokens');
+    if ~isempty(stationMatch)
+        currentStation = upper(strip(string(stationMatch{1}{1})));
+    else
+        % fallback - use station from filename
+        currentStation = "";
+    end
+
+    %% Find station metadata
+    % find metadata values for the station
+    metaRow = strcmpi(metadataTable.station, currentStation);
+    
+    % Remove cloud, wind, and wave rows from header
+    modifiedData = regexprep(modifiedData, '(?i)!*/cloud_percent=[^\r\n]*\r?\n?', ''); 
+    modifiedData = regexprep(modifiedData, '(?i)!*/wind_speed=[^\r\n]*\r?\n?', '');  
+    modifiedData = regexprep(modifiedData,'(?i)!*/wave_height=[^\r\n]*\r?\n?', '');
+    % remove existing secchi depth
+    modifiedData = regexprep(modifiedData,'(?i)!*/secchi_depth=[^\r\n]*\r?\n?', '');
+   % remove pre-existing weather and water notes (using multiline flag (?m))
+    modifiedData = regexprep(modifiedData, '(?mi)^\s*!\s*Weather Notes:.*?\r?\n', '');
+    modifiedData = regexprep(modifiedData, '(?mi)^\s*!\s*Water Surface Notes:.*?\r?\n', '');
+    % Remove empty comment lines (lines containing only '!') \s*!\s*
+    % matches "!" regardless of trailing spaces
+    modifiedData = regexprep(modifiedData, '(?m)^\s*!\s*\r?\n', '');
+
+    if any(metaRow)
+        % Grab values directly as strings
+        secchiStr = string(metadataTable.secchi_depth(metaRow));
+        weatherStr = string(metadataTable.weather_notes(metaRow));
+        surfaceStr = string(metadataTable.water_surface_notes(metaRow));
+        % Replace missing values with "NA" before any string operations
+        secchiStr = fillmissing(secchiStr, "constant", "NA");
+        weatherStr = fillmissing(weatherStr, "constant", "NA");
+        surfaceStr = fillmissing(surfaceStr, "constant","NA");
+        %clean empty strings
+        if secchiStr == ""; end
+        if weatherStr ==""; end
+        if surfaceStr ==""; end
+    else
+        secchiStr = ""; weatherStr = "NA"; surfaceStr = "NA";
+    end
+
+    % insert secchi depth before /measurement depth
+    secchiLine = sprintf('/secchi_depth=%s', secchiStr);
+    modifiedData = regexprep(modifiedData, '(?i)(/measurement_depth=[^\r\n]*\r?\n)', sprintf('$1%s\n', secchiLine));
+    % update header fields
+    modifiedData = regexprep(modifiedData, '(?i)/documents=[^\r\n]*', "/documents=" + documents);
+    modifiedData = regexprep(modifiedData, '(?i)/affiliations?=[^\r\n]*', "/affiliation=" + affiliation);
+    modifiedData = regexprep(modifiedData, '(?i)/data_file_name=[^\r\n]*', "/data_file_name=" + sbFileName);
+
+    %% 5: Update comments with weather, water notes
+    commentsBlock = sprintf('! Weather Notes:%s\n! Water Surface Notes:%s\n', weatherStr, surfaceStr);
+    lastComment = '! The visible to UV lamp switch for the Cary 4000 occurs at 350nm';
+    if contains (modifiedData, lastComment, 'IgnoreCase', true)
+        modifiedData = regexprep(modifiedData, '(?i)(! The visible to UV lamp switch for the Cary 4000 occurs at 350nm[^\r\n]*\r?\n)', "$1" + commentsBlock);
+    else
+        % Insert comment lines right above /end_header
+        modifiedData = regexprep(modifiedData, '(?i)/end_header', commentsBlock + "\n/end_header");
+    end 
+
+    %% 6: write to SeaBASS output folder
+    fullOutputPath = fullfile(targetSubfolder, sbFileName);
+    if exist(fullOutputPath, 'file')
+        delete(fullOutputPath); % Clear existing files to prevent issues
+    end
+
+    writelines(modifiedData, fullOutputPath);
+    fprintf('Updated: %s\n', sbFileName);
+end
