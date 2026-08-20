@@ -122,17 +122,17 @@ Note: the weather/ water notes format for this script are repeated in the script
 - Define above and below detection limit
 
 **2: Blank metadata columns**
-Import and read the metadata file
-Set variable type for station column to string, set all variable names to lowercase to ensure matching
-Create blank columns for the station-specific metadata to be filled into (lat/lon/date/time) in mainData 
+- Import and read the metadata file
+- Set variable type for station column to string, set all variable names to lowercase to ensure matching
+- Create blank columns for the station-specific metadata to be filled into (lat/lon/date/time) in mainData 
 
 **3: Identify sites (and correlated stations and file names)**
-Create array with the 4 site names (ie. Rietvlei; siteNames = main sites)
-Map the output files that correspond to the sites (ie. RV1A) (fileNames = define output files (non seabass))
-Using a nested array - map all station names within each site (stationsPerSite = define any substations within main sites)
+- Create array with the 4 site names (ie. Rietvlei; siteNames = main sites).
+- Map the output files that correspond to the sites (ie. RV1A) (fileNames = define output files (non seabass))
+- Using a nested array - map all station names within each site (stationsPerSite = define any substations within main sites)
 
 **4: For loop - brings data for each site one at a time**
-Moving through the substations that match the sites defined above, the loop moves through mainData and filters through the “station” column, bringing stations for the current site into a new sheet (siteTable). 
+- Moving through the substations that match the sites defined above, the loop moves through mainData and filters through the - “station” column, bringing stations for the current site into a new sheet (siteTable). 
 
 **4A: Create site table**
 - currentSite = current site as each loop moves through siteNames
@@ -196,121 +196,120 @@ Start with an empty cell array to be filled
 - For seabass: calls function convert_excel_to_seabass() - makes the seabass files in their own folder
 
 ## Chl_A_headers_sb.m
-Expects a single excel sheet, with metadata (lat/lon/date/time/volfit) in the raw file
-Output: uses “append” rather than “legnth(headerCellArray) + 1” - find description in Nutrients_headers_sb (Matches Nutrients, Chl_A, ACS)
-Lines 45-46: Rename chla to chl_a if present
+- Expects a single excel sheet, with metadata (lat/lon/date/time/volfit) in the raw file
+- Output: uses “append” rather than “legnth(headerCellArray) + 1” - find description in Nutrients_headers_sb (Matches Nutrients, Chl_A, ACS)
+- Lines 45-46: Rename chla to chl_a if present
 
 ## BB9_Optics_headers_sb.m
-Expects single dataset (All_BB9.xlsx)
-Target sites differ (no data from Klein River Estuary)
-Instrument information: adds header rows for instrument_manufacturer and instrument model (same logic as adding detection limits)
-Under “load BB9 data set” - regexprep dynamically renames wavelength column from wvl to bb
-Output: uses “append” rather than “legnth(headerCellArray) + 1” - find description in Nutrients_headers_sb
+- Expects single dataset (All_BB9.xlsx)
+- Target sites differ (no data from Klein River Estuary)
+- Instrument information: adds header rows for instrument_manufacturer and instrument model (same logic as adding detection limits)
+- Under “load BB9 data set” - regexprep dynamically renames wavelength column from wvl to bb
+- Output: uses “append” rather than “legnth(headerCellArray) + 1” - find description in Nutrients_headers_sb
 
 ## Nutrients: 
 ### Nutrients_BIOSCAPE.m 
-Nutrients: read data, clean additives on station names
-Define variable names
-Calculate mean, standard deviation, bincount for each variable
-Rename variables to match SeaBASS requirements
-For loop: finds column for mean, std, bincount, creates and fills columns
-Liquid Carbon:
-Works only with dissolved type (as indicated by Humenshi in email)
-Identify data columns
-Run groupsummary (mean, std, bincount)
-Sets below detection limit values to -8888 and missing (NaN values to -9999)
-Bincount excludes -8888 and -9999
-Rename columns to match SB
-Uses for loop - same logic as above
-Particulate carbon
-Volume filtered is 30 mL for all samples
-Unit conversions - all started as %
-Final units:
-Calculated total mass in mg (using metadata info)
-Converted to mg/m^3
-Define and rename variables and coverts units where necessary
-Same for loop logic
-Site and station 
-Use metadata for lat/lon/date/time columns
-Split main raw data sheet up by site
-Save each sheet’s data to excel file
+- Nutrients: read data, clean additives on station names
+- Define variable names
+- Calculate mean, standard deviation, bincount for each variable
+- Rename variables to match SeaBASS requirements
+- For loop: finds column for mean, std, bincount, creates and fills columns
 
-Previous version combined the three file types into one master document 
+**Liquid Carbon:**
+- Works only with dissolved type
+- Identify data columns
+- Run groupsummary (mean, std, bincount)
+- Sets below detection limit values to -8888 and missing (NaN values to -9999); Bincount excludes -8888 and -9999
+- Rename columns to match SB
+- Uses for loop - same logic as above
+
+**Particulate carbon**
+- Volume filtered is 30 mL for all samples
+- Unit conversions
+- Calculated total mass in mg (using metadata info), converted to mg/m^3
+- Define and rename variables and coverts units where necessary
+- Same for loop logic
+- Site and station
+- Use metadata for lat/lon/date/time columns
+- Split main raw data sheet up by site
+- Save each sheet’s data to excel file
+
+_Previous version combined the three file types into one master document_
 Using outerjoin on station - merges nutrients, liquid carbon, and particulate carbon tables:
-tempTable = outerjoin(nutrientsSeaBassTable, liquidSeaBassTable, 'Keys', 'station', 'MergeKeys', true); 
-masterSeabassTable = outerjoin(tempTable, partSeaBassTable, 'Keys', 'station', 'MergeKeys', true);
+_tempTable = outerjoin(nutrientsSeaBassTable, liquidSeaBassTable, 'Keys', 'station', 'MergeKeys', true); 
+masterSeabassTable = outerjoin(tempTable, partSeaBassTable, 'Keys', 'station', 'MergeKeys', true);_
 
 ### Nutrients_header_sb.m
-Used raw data to create 3 raw data files to reference, for nutrients, liquid, and particulate
-Logic mainly matches the script TSS_Turbidity_Headers_SB
-Format: read raw files, match metadata, format custom seabass header blocks, exporting output files for conversion to .sb.
-Expects four separate input Excel files pre-split by site in the source folder (Rietvlei_Nutrients, Zeekoevlei_Nutrients, etc). Each site file is looped. 
+- Used raw data to create 3 raw data files to reference, for nutrients, liquid, and particulate
+- Logic mainly matches the script TSS_Turbidity_Headers_SB
+- Format: read raw files, match metadata, format custom seabass header blocks, exporting output files for conversion to .sb.
+- Expects four separate input Excel files pre-split by site in the source folder (Rietvlei_Nutrients, Zeekoevlei_Nutrients, etc). Each site file is looped. 
 
 Differences between TSS and Nutrients:
-Fields and units - Additional header variable /below_detection_limit
-Secchi depth:
-Checks if secchi_depth exists as a column name in the site Excel sheet (if missing, add column of NaN; If present, standardize header name to secchi_depth)
-Loops through stations, populates siteTable.secchi_depth(dataRows) from metadataTable.secchi_depth(metaRow)
-Output files:
-Output files end with _prepped (optional) into an output subfolder
-Uses “append” - Writes header array starting at cell A1. The method used for nutrients has potential risks. If adapting the scripts, the method used for TSS Turbidity is recommended to avoid potentially adding data beneath empty rows.
+- Fields and units - Additional header variable /below_detection_limit
+- Secchi depth:
+	- Checks if secchi_depth exists as a column name in the site Excel sheet (if missing, add column of NaN; If present, standardize header name to secchi_depth)
+- Loops through stations, populates siteTable.secchi_depth(dataRows) from metadataTable.secchi_depth(metaRow)
+- Output files:
+	- Output files end with _prepped (optional) into an output subfolder
+	- Uses “append” - Writes header array starting at cell A1. The method used for nutrients has potential risks. If adapting the scripts, the method used for TSS Turbidity is recommended to avoid potentially adding data beneath empty rows.
 
 ## AC-S: 
 
 ### ACS_to_matlab.py
-Load ‘all_ACS_data.pkl’
+- Load ‘all_ACS_data.pkl’
 For each item
-Check if is pandas data frame or series, drop duplicates
-Converts dataframes to python dictionaries (to_dict(orient=‘list’))
-Use np.array () to convert lists and numpy array
-Use input path to determine destination folder (os.path.dirname())
-Save object as matlab structure array
+- Check if is pandas data frame or series, drop duplicates
+- Converts dataframes to python dictionaries (to_dict(orient=‘list’))
+- Use np.array () to convert lists and numpy array
+- Use input path to determine destination folder (os.path.dirname())
+- Save object as matlab structure array
 ** AFTER THE ACS TO MATLAB: “converted_data.mat” was used to export to Excel. Opens the .mat structure file, attaches spectral variable column names, and extracts station arrays into individual .xlsx files
 
 ### ACS_headers_sb.m
-Uses the structure array created above.
-Same overall logic as above - populate seabass headers and metadata info.
-Generates individual files for every substation
-Uses summary CSV (ACS_station_N_summary.csv) to pull station counts and add bincount into the header. Matches summary bin counts using station identifiers
-Uses “append” method for writing - like Chl_A and Nutrients
-Removes column 4 - c_wavelength (because in this case wavelengths for a and c are identical)
+- Uses the structure array created above.
+- Same overall logic as above - populate seabass headers and metadata info.
+- Generates individual files for every substation
+- Uses summary CSV (ACS_station_N_summary.csv) to pull station counts and add bincount into the header. Matches summary bin counts using station identifiers
+- Uses “append” method for writing - like Chl_A and Nutrients
+- Removes column 4 - c_wavelength (because in this case wavelengths for a and c are identical)
 
 ## Radiometric (TriOS, SE, GER):
-
 All scripts go in order of:
- *_to_matlab_structure.py: convert from pickle file to matlab structure
-Take structured .mat files from Python
-Add sensor-specific conversion units
-Calculate replicate stats across wavelengths
-Use Mobley 1999 glint-correction
-*_calculations_conversions: unit conversions and set-up of files in matlab
-*_headers_sb: typical header script as seen above
+1. *_to_matlab_structure.py: convert from pickle file to matlab structure
+2. Take structured .mat files from Python
+3. Add sensor-specific conversion units
+4. Calculate replicate stats across wavelengths
+5. Use Mobley 1999 glint-correction
+6. *_calculations_conversions: unit conversions and set-up of files in matlab
+7. *_headers_sb: typical header script as seen above
 
 ### TriOS
 #### Trios_to_Matlab_structure.py
-Overview: reorganizes nested TriOS data stored in .pickle file into a MATLAB structure
-Input: Pickle file with raw TriOS spectral radiometer measurements (TriOS_GER_SE_Rrs_dictionary_03_26_26_final.pickle)
-Pull array metadata:
-Extracts sensor wavelengths (data[‘wavelegnths’][TriOS’])
-Extracts raw radiance measurements (data['Radiance']['TriOS'])
+- Overview: reorganizes nested TriOS data stored in .pickle file into a MATLAB structure
+- Input: Pickle file with raw TriOS spectral radiometer measurements (TriOS_GER_SE_Rrs_dictionary_03_26_26_final.pickle)
+
+- Pull array metadata:
+	- Extracts sensor wavelengths (data[‘wavelegnths’][TriOS’])
+	- Extracts raw radiance measurements (data['Radiance']['TriOS'])
 Loops for each key
-Breaks text keys into three metadata components: station/ site name, replicate number, and data type (sky, water, or spec)
-Split on space to separate station_number from measurement type (ie. ‘KR1B_1’ and ‘sky’)
-Split prefix on rightmost underscore (.rsplit(‘_’, 1)): separate station from replicate (‘KR1B’, ‘1’)
-Rebuilds nested dictionary hierarchy (Groups data sequentially by site → replicate → data type)
-Exports a structure workspace file (Trios_Strutured.mat) which contains the organized nested dictionary and wavelength arrays for MATLAB
-scipy.io.savemat() - saves Trios_Strutured.mat with two variables - site and wavelengths
+- Breaks text keys into three metadata components: station/ site name, replicate number, and data type (sky, water, or spec)
+- Split on space to separate station_number from measurement type (ie. ‘KR1B_1’ and ‘sky’)
+- Split prefix on rightmost underscore (.rsplit(‘_’, 1)): separate station from replicate (‘KR1B’, ‘1’)
+- Rebuilds nested dictionary hierarchy (Groups data sequentially by site → replicate → data type)
+- Exports a structure workspace file (Trios_Strutured.mat) which contains the organized nested dictionary and wavelength arrays for MATLAB
+- scipy.io.savemat() - saves Trios_Strutured.mat with two variables - site and wavelengths
 
 #### TRIOS_calculations_conversions.m
-Using the file created by Trios_to_Matlab.py - (Trios_Structured.mat)
-Conversions: Convert mW/(m^2 * nm * sr) to μW/(cm^2 * nm *sr) → Conversion factor of 0.1
-Statistics:
-For each site make blank matrixes the necessary rows
-Separate data labelled water, spec, sky
-Calculates median, standard deviation, and bincount (non NaN) for all replicates for each wavelength
-Calculate for water radiance (Lt), and sky radiance (Lsky). Es values for TriOS are direct from the cosine collector, no conversion necessary.
-Radiometric Equations (Using Rg value of 0.98 and current replicate to calculate Lw and Rrs)
-Build site table, exports individual Excel spreadsheets with Lsky, Lt, Lw, and Rrs statistics 
+- Using the file created by Trios_to_Matlab.py - (Trios_Structured.mat)
+- Conversions: Convert mW/(m^2 * nm * sr) to μW/(cm^2 * nm *sr) → Conversion factor of 0.1
+- Statistics:
+	- For each site make blank matrixes the necessary rows
+	- Separate data labelled water, spec, sky
+	- Calculates median, standard deviation, and bincount (non NaN) for all replicates for each wavelength
+	- Calculate for water radiance (Lt), and sky radiance (Lsky). Es values for TriOS are direct from the cosine collector, no conversion necessary.
+	- Radiometric Equations (Using Rg value of 0.98 and current replicate to calculate Lw and Rrs)
+- Build site table, exports individual Excel spreadsheets with Lsky, Lt, Lw, and Rrs statistics 
 
 #### TRIOS_headers_sb.m
 Uses TSS writecell method
@@ -319,80 +318,81 @@ Input: excel sheets from TRIOS_calculations_conversions (see above)
 ### Spectral Evolution (SE)
 #### SE_to_matlab_structure.py
 See TriOS_to_matlab.py above.
-Opens pickle file, pulls data ['wavelengths']['SE'] and data['Radiance']['SE']
-Splits identifiers using key.split and .rsplit
-Maps array into hierarchy, creates target dictionary
-Exports to SE_Structured.mat
+- Opens pickle file, pulls data ['wavelengths']['SE'] and data['Radiance']['SE']
+- Splits identifiers using key.split and .rsplit
+- Maps array into hierarchy, creates target dictionary
+- Exports to SE_Structured.mat
 
 #### SE_calculations_conversions.m
 Input file: “SE_structured.mat” (created by  SE_to_matlab.py)
-Conversions: From W/(m^2 * sr *nm) to μW/ (cm^2 * sr * nm); Conversion factor: 100 
-Statistics: Median, standard deviation, and bincount across replicates for plaque, sky, and water
-Using reference file 
-Same steps as above for TRIOS
-Es calculated instead of from cosine collector
+- Conversions: From W/(m^2 * sr *nm) to μW/ (cm^2 * sr * nm); Conversion factor: 100 
+- Statistics: Median, standard deviation, and bincount across replicates for plaque, sky, and water
+- Same steps as above for TRIOS, but with Es calculated and not collected from cosine collector.
 
 #### SE_headers_sb.m
-Same logic as above
-Input folder: SE_CyanoSCape_Raw_Rrs. Alternative - sheets from SE_to_mtlab.m
-Writetable with explicit starting range: matches TSS_Turbidity
+- Same logic as above
+- Input folder: SE_CyanoSCape_Raw_Rrs. Alternative - sheets from SE_to_mtlab.m
+- Writetable with explicit starting range: matches TSS_Turbidity
 
 ### GER
 #### GER_to_matlab_structure.py
-See TriOS_to_matlab.py above.
-Identical structure to SE_to_matlab.py, Targets GER wavelengths and radiance
+- See TriOS_to_matlab.py above.
+- Identical structure to SE_to_matlab.py, Targets GER wavelengths and radiance
 
 #### GER_calculations_conversions.m
-Conversions: W/(cm^2 * nm * sr * 10^10) to μW/ (cm^2 * nm *sr); Conversion factor: 1e^-4
-Stats: Same as SE
-Radiometric: Calculates Es, Lw, and Rrs using Mobley glint correction with Rg = 0.98 and p = 0.028
+- Conversions: W/(cm^2 * nm * sr * 10^10) to μW/ (cm^2 * nm *sr); Conversion factor: 1e^-4
+- Stats: Same as SE
+- Radiometric: Calculates Es, Lw, and Rrs using Mobley glint correction with Rg = 0.98 and p = 0.028
 
 #### GER_headers_sb.m
-Reference file: GER_Structured.mat
-Logic of above
-Input: sheets from GER_to_mtlab.m
-Potential issue with script - TW2D is listed as station, but does not exist elsewhere in metadata
-Calibration file = is currently unassigned “file name here” 
-Secchi depth is inserted relative to measurement depth rather than water depth (not intentional difference)
+- Reference file: GER_Structured.mat
+- Logic of above
+- Input: sheets from GER_to_mtlab.m
+- _Potential issue - station TW2D does not exist elsewhere or have metadata information_
+- Calibration file = is currently unassigned “file name here” 
+- Secchi depth is inserted relative to measurement depth rather than water depth (not intentional difference)
 
 ## Particulate_Absorption_Update.m
-This script does NOT follow the format of the rest - as files were received as .sb and only changes to specific header lines were required
-To use: change folderPath to raw .csv folder, change baseDownloadsFolder to working directory, change metadataTable to correct location and file
+- This script does NOT follow the format of the rest - as files were received as .sb and only changes to specific header lines were required
+- To use: change folderPath to raw .csv folder, change baseDownloadsFolder to working directory, change metadataTable to correct location and file
 
 1: Set folder paths and load metadata
-Set folder path for .sb files (In reference files folder: Particulate-Processed-Seabass)
-Import and read metadata file (BIOSCAPE_Metadata Table)
-Forces station to be a string
-Standardize column names to lowercase
-Cleans station identifiers - remove extra spaces, make all uppercase
-Define exact string values to overwrite previous text in the header (documents and affiliation)
-For each file in the folder - retrieve file name and folder location
+- Set folder path for .sb files (In reference files folder: Particulate-Processed-Seabass)
+- Import and read metadata file (BIOSCAPE_Metadata Table)
+- Forces station to be a string
+- Standardize column names to lowercase
+- Cleans station identifiers - remove extra spaces, make all uppercase
+- Define exact string values to overwrite previous text in the header (documents and affiliation)
+- For each file in the folder - retrieve file name and folder location
 
 2: format SeaBASS output name
-Define file name format “BIOSCAPE-AP-SITE_NAME-scan-yyyymmdd-R1.sb
-tempName - replaces prefix variations in file name with same BIOSCAPE-AP prefix
-Standardize prefix to BIOSCAPE-AP
-Remove 2023 (on its own) from file name
-startDate - read line by line through the header to find the sampling date (/start_date = yyyymmdd)
-Once found, date is saved as string to startDate (token) and closes file
-Pattern: uses expressions to assemble a file name with the pattern 
-$1, 2, 3, 4, = regex backreferences
-$1 = BIOSCAPE-AP-
-$2 = ([^_]+)  : site name (characters before the next _)
-$3 = (Rep\d+) : replicate (Rep) followed by digit
+- Define file name format “BIOSCAPE-AP-SITE_NAME-scan-yyyymmdd-R1.sb
+- tempName - replaces prefix variations in file name with same BIOSCAPE-AP prefix
+- Standardize prefix to BIOSCAPE-AP
+- Remove 2023 (on its own) from file name
+- startDate - read line by line through the header to find the sampling date (/start_date = yyyymmdd)
+- Once found, date is saved as string to startDate (token) and closes file
+- Pattern: uses expressions to assemble a file name with the pattern 
+	- $1, 2, 3, 4, = regex backreferences
+	- $1 = BIOSCAPE-AP-
+	- $2 = ([^_]+)  : site name (characters before the next _)
+	- $3 = (Rep\d+) : replicate (Rep) followed by digit
+
 3: organize output folders and subfolders: Mirror any subdirectories organizing raw files for output folder
+
 4: clean-up header using metadata information
-Load raw file contents as text block
-Extract station name from header tag “/station =”
-Meta row: find matching station row in metadata table
-Remove previous unnecessary header lines (cloud percent, wind speed, wave height, secchi depth)
-Remove empty comment lines with only “!”
-If any(metaRow): extracts values from metadata for secchi, weather, and water surface matching the station. Fill missing/ blank fields with “NA”
-secchiLine = inserts updated secchi depth below measurement depth
-Overwrites documents, affiliation, data file name with values defined in section 1 
+- Load raw file contents as text block
+- Extract station name from header tag “/station =”
+- Meta row: find matching station row in metadata table
+- Remove previous unnecessary header lines (cloud percent, wind speed, wave height, secchi depth); Remove empty comment lines with only “!”
+- If any(metaRow): extracts values from metadata for secchi, weather, and water surface matching the station. Fill missing/ blank fields with “NA”
+- secchiLine = inserts updated secchi depth below measurement depth
+- Overwrites documents, affiliation, data file name with values defined in section 1 
+
 5: update comments
-Formats comment block with weather and water surface observations
-Inserts weather/ water text after specific comment line “The visible to UV…), or above the /end_header tag if the specific comment line is not present
+- Formats comment block with weather and water surface observations
+- Inserts weather/ water text after specific comment line “The visible to UV…), or above the /end_header tag if the specific comment line is not present
+
 6: write output file
-Check if existing output file with the same name exists - if it does, deletes files to avoid issues
-Writes updated header and data to directory as .sb files
+- Check if existing output file with the same name exists - if it does, deletes files to avoid issues
+- Writes updated header and data to directory as .sb files
