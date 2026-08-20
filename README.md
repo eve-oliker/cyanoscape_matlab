@@ -7,7 +7,9 @@ Several scripts were adapted from the glakes project (https://zenodo.org/records
 # In-depth information on utilizing scripts. 
 ## General pipeline structure:
 Python pickle to MATLAB structure (‘*_to_matlab_structure.py’): unpacks raw spectral pickle files, formats nested site/ station keys, and exports to structured MATLAB array (‘.mat’)
+
 Python libraries: ‘pandas’, ‘numpy’, scipy’
+
 Calculations and conversions (‘*_calculations_conversions.m’): normalizes radiometric units, applying Mobley 1999 glint corrections, computes summary statistics (median, standard deviation, bincount)
 
 SeaBASS Header and Formatting (‘*_header_sb.m’): maps metadata, formats SeaBASS header blocks, formats non-detect values, converts spreadsheets to ‘.sb’ text files using functions ‘Seabass_project_headers.m’ and ‘Convert_excel_to_seabass.m’
